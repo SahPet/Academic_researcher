@@ -2,7 +2,7 @@
 
 # Academic Researcher
 
-An AI-powered tool for writing well cited (and citation checked) academic paragraphs. It leverages multiple LLMs to gather, analyze and synthesize scientific literature.
+An AI-powered tool for writing well cited (and citation checked) academic paragraphs. It leverages multiple LLMs and internet search and fetch APIs to gather, analyze and synthesize well cited scientific paragraphs.
 
 ## Features
 
