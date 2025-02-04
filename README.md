@@ -9,7 +9,7 @@ An AI-powered tool for comprehensive academic research, leveraging multiple LLMs
 - Multi-model approach using:
   - [O3-mini](https://openai.com/index/openai-o3-mini/) - A lightweight efficient LLM
   - [Google Gemini 2.0 Flash with thinking](https://ai.google.dev/gemini) - A fast Gemini model with resoning.
-  - [DeepSeekR1](https://docs.fireworks.ai/api-reference/introduction)) via Fireworks.ai API (stable, fast and secure compared to the original DeepSeek API).
+  - [DeepSeekR1](https://docs.fireworks.ai/api-reference/introduction) via Fireworks.ai API (stable, fast and secure compared to the original DeepSeek API).
 - Iterative search with adaptive query generation
 - Citation validation and metadata enrichment
 - Comprehensive reference management
