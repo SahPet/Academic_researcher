@@ -1,5 +1,4 @@
-
-![stylized_brain_with_glowing_circuits](https://github.com/user-attachments/assets/f7f67df2-eaf2-44cb-8da4-e32637f722a6)
+![stylized_brain_with_glowing_circuits_half_size](https://github.com/user-attachments/assets/52ea808a-c7ce-4ed9-a109-ecdbd972f52d)
 
 # Academic Researcher
 
