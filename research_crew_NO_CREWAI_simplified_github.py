@@ -65,7 +65,7 @@ load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 GEMINI_FLASH_THINKING_ID = os.getenv("GEMINI_FLASH_THINKING_ID", "gemini-2.0-flash-thinking-exp-01-21")
-DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
+FIREWORKS_API_KEY = os.getenv("FIREWORKS_API_KEY")
 SCRAPINGBEE_API_KEY = os.getenv("SCRAPINGBEE_API_KEY")
 PARSEHUB_API_KEY = os.getenv("PARSEHUB_API_KEY")
 PARSEHUB_PROJECT_TOKEN = os.getenv("PARSEHUB_PROJECT_TOKEN")
@@ -692,7 +692,7 @@ def call_deepseek_original(messages, model="deepseek-reasoner", temperature=0.1,
 
             # Create a clean configuration for Fireworks API
             client = openai.OpenAI(
-                api_key=DEEPSEEK_API_KEY,
+                api_key=FIREWORKS_API_KEY,
                 base_url="https://api.fireworks.ai/inference/v1",
                 http_client=httpx.Client(
                     trust_env=False,
