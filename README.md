@@ -11,8 +11,7 @@ An AI-powered tool for comprehensive academic research, leveraging multiple LLMs
 - Quality review and content revision
 - Support for academic paper formats and citations
 
-
-![Untitled diagram-2025-02-04-172346](https://github.com/user-attachments/assets/a40fc68b-fc7b-4565-8919-715498af998a)
+![Untitled_diagram_resized](https://github.com/user-attachments/assets/52012163-4251-4993-8858-7f5841433053)
 
 
 ## Prerequisites
