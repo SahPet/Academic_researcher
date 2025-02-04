@@ -4,7 +4,7 @@ An AI-powered tool for comprehensive academic research, leveraging multiple LLMs
 
 ## Features
 
-- Multi-model approach using O3-mini, Gemini, and DeepSeek
+- Multi-model approach using O3-mini, Gemini 2.0 Flash with thinking, and DeepSeekR1
 - Iterative search with adaptive query generation
 - Citation validation and metadata enrichment
 - Comprehensive reference management
