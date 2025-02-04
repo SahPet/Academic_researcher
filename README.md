@@ -42,23 +42,22 @@ pip install -r requirements.txt
 
 Set these environment variables in your '.env.example' file renamed to `.env`:
 
-Optional parameters:
-
-BASE_OUTPUT_FOLDER: Default is C:\research_outputs
-MAX_SEARCH_ROUNDS: Default is 7
-MAX_REFERENCES: Default is 12
+**Optional parameters (change in the main py file):**
+- BASE_OUTPUT_FOLDER: Default is C:\research_outputs
+- MAX_SEARCH_ROUNDS: Default is 7
+- MAX_REFERENCES: Default is 12
 
 Running the main script:
 ```bash
 python research_crew_NO_CREWAI_simplified_github.py
 ```
-When prompted, enter your research question. The tool will:
 
-Generate search queries
-Gather relevant academic references
-Synthesize content with proper citations
-Validate (fulltext download) and add extra references if neeed
-Produce and iteratively improve the academic text
+When prompted, enter your research question. The tool will:
+- Generate search queries
+- Gather relevant academic references
+- Synthesize content with proper citations
+- Validate (fulltext download) and add extra references if neeed
+- Produce and iteratively improve the academic text
 
 ## Output Structure
 
