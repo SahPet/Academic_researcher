@@ -7,14 +7,13 @@ An AI-powered tool for writing well cited (and citation checked) academic paragr
 ## Features
 
 - Multi-model approach using:
-  - [O3-mini](https://openai.com/index/openai-o3-mini/) - A lightweight efficient LLM
-  - [Google Gemini 2.0 Flash with thinking](https://ai.google.dev/gemini) - A fast Gemini model with resoning.
-  - [DeepSeekR1](https://docs.fireworks.ai/api-reference/introduction) via Fireworks.ai API (stable, fast and secure compared to the original DeepSeek API).
+  - [O3-mini](https://openai.com/index/openai-o3-mini/) - efficient reasoning LLM
+  - [Google Gemini 2.0 Flash with thinking](https://ai.google.dev/gemini) - Latest Gemini model with "thinking".
+  - [DeepSeekR1](https://docs.fireworks.ai/api-reference/introduction) DeepSeek's reasoning LLM via the Fireworks.ai API (stable, fast and secure compared to the original DeepSeek API).
 - Iterative search with adaptive query generation
-- Citation validation and metadata enrichment
+- Fulltext citation by citation validation and metadata enrichment
 - Comprehensive reference management
 - Quality review and content revision
-- Support for academic paper formats and citations
 
 ![Untitled_diagram_resized](https://github.com/user-attachments/assets/52012163-4251-4993-8858-7f5841433053)
 
