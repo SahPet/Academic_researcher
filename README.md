@@ -32,21 +32,37 @@ pip install -r requirements.txt
 
 ## Usage
 
-Run the main script:
-```bash
-python research_crew.py
-```
+**Required API keys:**
 
-Enter your research question when prompted. The tool will:
-1. Generate search queries
-2. Gather relevant academic references
-3. Synthesize content with proper citations
-4. Validate and enrich references
-5. Produce a final academic text
+- `OPENAI_API_KEY`: Obtain from [OpenAI API Keys](https://platform.openai.com/account/api-keys)
+- `GEMINI_API_KEY`: Obtain from [Google Gemini API Keys](https://ai.google.dev/gemini-api/docs/get-started)
+- `DEEPSEEK_API_KEY`: Obtain from [DeepSeek API Keys](https://deepseek.io/api-keys)
+- `SCRAPINGBEE_API_KEY`: Obtain from [ScrapingBee API Keys](https://www.scrapingbee.com/get-started/)
+- `PARSEHUB_API_KEY` and `PARSEHUB_PROJECT_TOKEN`: Obtain from [ParseHub API Documentation](https://parsehub.com/docs#api)
+
+Set these environment variables in your '.env.example' file renamed to `.env`:
+
+Optional parameters:
+
+BASE_OUTPUT_FOLDER: Default is C:\research_outputs
+MAX_SEARCH_ROUNDS: Default is 7
+MAX_REFERENCES: Default is 12
+
+Running the main script:
+```bash
+python research_crew_NO_CREWAI_simplified_github.py
+```
+When prompted, enter your research question. The tool will:
+
+Generate search queries
+Gather relevant academic references
+Synthesize content with proper citations
+Validate (fulltext download) and add extra references if neeed
+Produce and iteratively improve the academic text
 
 ## Output Structure
 
-Results are saved in `research_outputs/` with session-specific folders containing:
+Results are saved in `C:/research_outputs/` with subfolders containing:
 - Content drafts and final version
 - Search results and reference data
 - Citation validations
@@ -54,7 +70,7 @@ Results are saved in `research_outputs/` with session-specific folders containin
 
 ## Contributing
 
-Contributions welcome! Please read the contributing guidelines first.
+Contributions welcome!
 
 ## License
 
