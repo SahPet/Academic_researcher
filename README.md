@@ -23,24 +23,27 @@ An AI-powered tool for comprehensive academic research, leveraging multiple LLMs
 ## Installation
 
 1. Clone the repository
-2. Install dependencies:
+```bash
+git clone https://github.com/SahPet/Academic_researcher.git
+cd Academic_researcher
+```
+
+3. Install dependencies:
 ```bash
 pip install -r requirements.txt
 ```
-3. Copy `.env.example` to `.env` and add your API keys
-4. Install Chrome/Chromium for Selenium support
 
-## Usage
-
-**Required API keys:**
-
+3. Change the name  `.env.example` to `.env` and add your API keys (**required** unless you comment out parts of the code):
 - `OPENAI_API_KEY`: Obtain from [OpenAI API Keys](https://platform.openai.com/account/api-keys)
 - `GEMINI_API_KEY`: Obtain from [Google Gemini API Keys](https://ai.google.dev/gemini-api/docs/get-started)
 - `DEEPSEEK_API_KEY`: Obtain from [DeepSeek API Keys](https://deepseek.io/api-keys)
 - `SCRAPINGBEE_API_KEY`: Obtain from [ScrapingBee API Keys](https://www.scrapingbee.com/get-started/)
 - `PARSEHUB_API_KEY` and `PARSEHUB_PROJECT_TOKEN`: Obtain from [ParseHub API Documentation](https://parsehub.com/docs#api)
 
-Set these environment variables in your '.env.example' file renamed to `.env`:
+4. Install Chrome/Chromium for Selenium support
+
+## Usage
+
 
 **Optional parameters (change in the main py file):**
 - BASE_OUTPUT_FOLDER: Default is C:\research_outputs
