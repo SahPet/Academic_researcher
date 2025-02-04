@@ -39,6 +39,7 @@ pip install -r requirements.txt
 3. Change the name `.env.example` to `.env` and add your API keys (**required** unless you comment out parts of the code):
 - `OPENAI_API_KEY`: Obtain from [OpenAI API Keys](https://platform.openai.com/account/api-keys)
 - `GEMINI_API_KEY`: Obtain from [Google Gemini API Keys](https://ai.google.dev/gemini-api/docs/get-started)
+- `SERPER_API_KEY`: Obtain from [Serper API Keys](https://serper.dev/) 
 - `FIREWORKS_API_KEY`: Fast and stable DeepSeekR1 API - obtain from [Fireworks API Keys](https://docs.fireworks.ai/api-reference/introduction)
 - `SCRAPINGBEE_API_KEY`: Obtain from [ScrapingBee API Keys](https://www.scrapingbee.com/get-started/)
 - `PARSEHUB_API_KEY` and `PARSEHUB_PROJECT_TOKEN`: Obtain from [ParseHub API Documentation](https://parsehub.com/docs#api)
