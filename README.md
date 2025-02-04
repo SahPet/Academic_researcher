@@ -66,6 +66,28 @@ When prompted, enter your research question. The tool will:
 
 ## Output Structure
 
+**Example input:**
+"*What are the current best strategies for auto annotation of semantic segmentation?*"
+
+**Example output:**
+-------------------------------------------
+Current best strategies for auto annotation of semantic segmentation datasets center on minimizing the labor-intensive process of dense pixel-level labeling by leveraging a combination of weak and noisy supervision, active learning, and human-in-the-loop correction. For instance, recent frameworks incorporating semi-supervised learning with uncertainty-aware active sampling have demonstrated that segmentation models can achieve competitive Dice scores while significantly reducing the manual annotation workload, with some studies suggesting reductions on the order of 5070% compared to fully supervised methods (Wang et al., 2021; Zhang et al., 2025). Additionally, empirical research indicates that using point-based and image-level annotations can accelerate the labeling process and help mitigate common human errors without compromising segmentation accuracy (Fernndez-Moreno, 2023; Zhang et al., 2025). Emerging zero-shot approaches also harness self-supervised techniquesas evidenced by the scalability of masked autoencoders for feature learningto automatically generate annotations without extensive manual input (He et al., 2022; Xie et al., 2022). Furthermore, the integration of automated pre-annotation models, such as the Segment Anything Model (SAM), with selective human verification has shown promise for efficiently handling uncertain or complex cases, although further research is needed to validate its generalizability across diverse imaging modalities (Kirillov et al., 2023).
+
+References:
+Fernndez-Moreno, M. (2023). Exploring the trade-off between performance and annotation in deep learning: An engineering perspective. Engineering Applications of Artificial Intelligence. Retrieved from https://openreview.net/pdf?id=jMiZegbLUe
+
+He, K., Chen, X., Xie, S., Li, Y., Dollr, P., & Girshick, R. (2022). Masked autoencoders are scalable vision learners. In 2022 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) (pp. 1597915988). https://doi.org/10.1109/CVPR52688.2022.01553
+
+Kirillov, A., Mintun, E., Ravi, N., Mao, H., Rolland, C., Gustafson, L., Xiao, T., Whitehead, S., Berg, A. C., Lo, W.-Y., et al. (2023). Segment Anything. In Proceedings of the IEEE/CVF International Conference on Computer Vision (pp. 401544026).
+
+Wang, S., Li, C., Liu, Z., & Wang, R. (2021). Annotation-efficient deep learning for automatic medical image segmentation. Nature Communications, 12(1). Retrieved from https://www.nature.com/articles/s41467-021-26216-9
+
+Xie, Z., Zhang, Z., Cao, Y., Lin, Y., Bao, J., Yao, Z., Dai, Q., & Hu, H. (2022). Simmim: A simple framework for masked image modeling. In 2022 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) (pp. 96439653). https://doi.org/10.1109/CVPR52688.2022.00943
+
+Zhang, Y., Zhao, S., Gu, H., & Mazurowski, M. A. (2025). How to efficiently annotate images for best-performing deep learning-based segmentation models: An empirical study with weak and noisy annotations and Segment Anything Model. Journal of Imaging Informatics in Medicine. Retrieved from https://pubmed.ncbi.nlm.nih.gov/39843720
+-------------------------------------------
+
+
 Results are saved in `C:/research_outputs/` with subfolders containing:
 - Content drafts and final version
 - Search results and reference data
