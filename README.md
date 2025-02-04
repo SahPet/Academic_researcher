@@ -1,3 +1,6 @@
+
+![stylized_brain_with_glowing_circuits](https://github.com/user-attachments/assets/f7f67df2-eaf2-44cb-8da4-e32637f722a6)
+
 # Academic Researcher
 
 An AI-powered tool for comprehensive academic research, leveraging multiple LLMs to gather, analyze and synthesize scientific literature.
