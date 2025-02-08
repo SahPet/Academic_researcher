@@ -464,8 +464,6 @@ MAX_CONCURRENT_REQUESTS = 5
 REQUEST_TIMEOUT = 90  # seconds - increased from 30
 
 
-
-
 def call_gemini_pro(messages, model=GEMINI_PRO_ID, temperature=0.1, fast_mode=False, max_retries=1, base_delay=2, timeout=90):
     """
     Gemini Pro 2.0 caller with retry logic and response sanitization.
@@ -540,6 +538,8 @@ def call_gemini_pro(messages, model=GEMINI_PRO_ID, temperature=0.1, fast_mode=Fa
             return f"[Error: {error_msg}]"
 
     return "[Error: All retry attempts failed]"
+
+
 
 
 
@@ -1812,11 +1812,12 @@ def leftover_references_evaluator(
 
 
 
+
 def final_revision_agent(context, question):
     """
     Creates or revises a comprehensive scientific text with citations using a multi-step approach:
     1. Merge content without citations (Gemini Pro)
-    2. Extract and validate citations (Gemini Pro)  <-- CHANGED THIS
+    2. Extract and validate citations (Gemini Pro)
     3. Generate reference list (Gemini Pro)
     4. Integrate citations into text (Gemini Pro)
     """
@@ -1869,7 +1870,7 @@ def final_revision_agent(context, question):
         {
             "role": "system",
             "content": (
-                "You are a citation extractor. Analyze the provided drafts and identify all claims "
+                "You are a citation extractor. Analyze the provided text and identify all claims " # Changed "drafts" to "text"
                 "that need citations. For each claim:\n"
                 "1. Identify the specific evidence needed\n"
                 "2. Match it with available references\n"
@@ -2004,13 +2005,24 @@ def single_citation_check(call_deepseek, url, full_text, fallback_metadata, ques
     max_retries = 3
     base_timeout = 60  # Base timeout for Gemini
     
-    # Handle URL input that might be a dictionary
-    url_to_check = url.get('detail', url) if isinstance(url, dict) else url
-    if not isinstance(url_to_check, str):
-        root_logger.error(f"Invalid URL format received: {url}")
+    # Enhanced URL handling to properly extract URL string from various input formats
+    url_to_check = None
+    if isinstance(url, dict):
+        # Try different possible keys where the URL might be stored
+        url_to_check = url.get('detail') or url.get('url') or url.get('link')
+        if not url_to_check and 'doi' in str(url).lower():
+            # Handle DOI format
+            doi = url.get('doi') or url.get('DOI')
+            if doi:
+                url_to_check = f"https://doi.org/{doi}"
+    else:
+        url_to_check = str(url)  # Convert to string if it's not a dict
+
+    if not url_to_check:
+        root_logger.error(f"Could not extract valid URL from input: {url}")
         return {
             "decision": "REJECT",
-            "reason": "Invalid URL format",
+            "reason": "Invalid URL format or missing URL",
             "extra_citations": []
         }
     
