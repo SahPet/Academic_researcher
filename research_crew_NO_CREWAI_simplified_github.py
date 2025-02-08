@@ -1861,7 +1861,17 @@ def final_revision_agent(context, question):
         }
     ]
     
-    merged_text = call_gemini_pro(merge_messages)
+    # Try Gemini Pro first
+    try:
+        merged_text = call_gemini_pro(merge_messages)
+    except Exception as e:
+        root_logger.info("Gemini Pro merge failed, trying O3-mini")
+        try:
+            merged_text = call_o3mini(merge_messages)
+        except Exception as e:
+            root_logger.error(f"O3-mini merge failed: {str(e)}")
+            merged_text = call_deepseek(merge_messages)
+    
     root_logger.debug("Step 1 - Merged Text Output:")
     root_logger.debug(merged_text)
 
@@ -1904,7 +1914,17 @@ def final_revision_agent(context, question):
         }
     ]
     
-    citation_response = call_gemini_pro(citation_messages) # Use Gemini Pro here
+    # Try Gemini Pro first
+    try:
+        citation_response = call_gemini_pro(citation_messages)
+    except Exception as e:
+        root_logger.info("Gemini Pro citation extraction failed, trying O3-mini")
+        try:
+            citation_response = call_o3mini(citation_messages)
+        except Exception as e:
+            root_logger.error(f"O3-mini citation extraction failed: {str(e)}")
+            citation_response = call_deepseek(citation_messages)
+    
     parsed_jsons = extract_json(citation_response)
     
     # Check if parsed_jsons is not empty and is a list
@@ -1945,7 +1965,17 @@ def final_revision_agent(context, question):
         }
     ]
     
-    reference_list = call_gemini_pro(reference_messages)
+    # Try Gemini Pro first
+    try:
+        reference_list = call_gemini_pro(reference_messages)
+    except Exception as e:
+        root_logger.info("Gemini Pro reference list generation failed, trying O3-mini")
+        try:
+            reference_list = call_o3mini(reference_messages)
+        except Exception as e:
+            root_logger.error(f"O3-mini reference list generation failed: {str(e)}")
+            reference_list = call_deepseek(reference_messages)
+    
     root_logger.debug("Step 3 - Reference List:")
     root_logger.debug(reference_list)
 
@@ -1981,7 +2011,17 @@ def final_revision_agent(context, question):
         }
     ]
     
-    final_version = call_gemini_pro(integration_messages)
+    # Try Gemini Pro first
+    try:
+        final_version = call_gemini_pro(integration_messages)
+    except Exception as e:
+        root_logger.info("Gemini Pro final integration failed, trying O3-mini")
+        try:
+            final_version = call_o3mini(integration_messages)
+        except Exception as e:
+            root_logger.error(f"O3-mini final integration failed: {str(e)}")
+            final_version = call_deepseek(integration_messages)
+    
     root_logger.debug("Step 4 - Final Version:")
     root_logger.debug(final_version)
 
