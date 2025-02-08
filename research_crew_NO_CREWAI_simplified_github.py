@@ -464,85 +464,6 @@ MAX_CONCURRENT_REQUESTS = 5
 REQUEST_TIMEOUT = 90  # seconds - increased from 30
 
 
-def call_gemini_pro(messages, model=GEMINI_PRO_ID, temperature=0.1, fast_mode=False, max_retries=1, base_delay=2, timeout=90):
-    """
-    Gemini Pro 2.0 caller with retry logic and response sanitization.
-    Maintains same interface as call_gemini for compatibility.
-
-    Args:
-        messages: List of message dictionaries (will be converted to appropriate Gemini format)
-        model: Model identifier (default: GEMINI_PRO_ID)
-        temperature: Temperature for generation (default: 0.1)
-        fast_mode: Ignored for Gemini Pro
-        max_retries: Maximum number of retry attempts (default: 1)
-        base_delay: Base delay in seconds for exponential backoff (default: 2)
-        timeout: Currently ignored for Gemini as it uses its own timeout handling
-    """
-
-    # Convert messages to Gemini format
-    prompt_parts = []
-    for msg in messages:
-        role = msg["role"].upper()
-        content = msg["content"]
-        prompt_parts.append(f"{role}: {content}")
-
-    prompt = "\n".join(prompt_parts)
-
-    print("\n=== GEMINI PRO INPUT ===")
-    if len(prompt) > 5000:
-        print(prompt[:3000] + "\n...[TRUNCATED]...\n" + prompt[-2000:])
-    else:
-        print(prompt)
-    print("=====================\n")
-
-    for attempt in range(max_retries):
-        try:
-            if attempt > 0:
-                delay = base_delay * (2 ** (attempt - 1))
-                root_logger.info(f"Retry attempt {attempt + 1}/{max_retries} after {delay}s delay")
-                time.sleep(delay)
-
-            response = gemini_client.models.generate_content(
-                model=model,
-                contents=prompt,
-                config=GenerateContentConfig(
-                    tools=[],  # no tools => no searching
-                    response_modalities=["TEXT"],
-                    temperature=temperature
-                )
-            )
-
-            # Extract text from response
-            content = "".join(part.text for part in response.candidates[0].content.parts)
-            content = content.strip()
-
-            # Sanitize and validate the output
-            content = sanitize_json_content(content)
-            if not validate_response(content):
-                if attempt < max_retries - 1:
-                    root_logger.warning("Response validation failed, retrying...")
-                    continue
-                return "[Error: Response validation failed]"
-
-            print("\n=== GEMINI PRO OUTPUT ===")
-            print(content)
-            print("=====================\n")
-
-            return content
-
-        except Exception as e:
-            error_msg = f"Gemini Pro API call failed: {str(e)}"
-            root_logger.error(f"{error_msg} (attempt {attempt + 1}/{max_retries})")
-            if attempt < max_retries - 1:
-                continue
-            return f"[Error: {error_msg}]"
-
-    return "[Error: All retry attempts failed]"
-
-
-
-
-
 def call_o3mini(messages, model="o3-mini", temperature=0.1, fast_mode=False, max_retries=1, base_delay=2, timeout=90):
     """
     Enhanced o3-mini caller with retry logic, timeout, and response sanitization.
@@ -604,7 +525,7 @@ def call_o3mini(messages, model="o3-mini", temperature=0.1, fast_mode=False, max
             response = client.chat.completions.create(
                 model=model,
                 messages=cleaned_messages,
-                max_completion_tokens=8192  # Keep only the essential parameters
+                #max_tokens=8192  # Removed as it's not a valid parameter for o3-mini
             )
 
             # Try to parse the response
@@ -751,6 +672,80 @@ def call_gemini(messages, model=GEMINI_FLASH_THINKING_ID, temperature=0.1, fast_
 
     return "[Error: All retry attempts failed]"
 
+def call_gemini_pro(messages, model=GEMINI_PRO_ID, temperature=0.1, fast_mode=False, max_retries=1, base_delay=2, timeout=90):
+    """
+    Gemini Pro 2.0 caller with retry logic and response sanitization.
+    Maintains same interface as call_gemini for compatibility.
+
+    Args:
+        messages: List of message dictionaries (will be converted to appropriate Gemini format)
+        model: Model identifier (default: GEMINI_PRO_ID)
+        temperature: Temperature for generation (default: 0.1)
+        fast_mode: Ignored for Gemini Pro
+        max_retries: Maximum number of retry attempts (default: 1)
+        base_delay: Base delay in seconds for exponential backoff (default: 2)
+        timeout: Currently ignored for Gemini as it uses its own timeout handling
+    """
+
+    # Convert messages to Gemini format
+    prompt_parts = []
+    for msg in messages:
+        role = msg["role"].upper()
+        content = msg["content"]
+        prompt_parts.append(f"{role}: {content}")
+
+    prompt = "\n".join(prompt_parts)
+
+    print("\n=== GEMINI PRO INPUT ===")
+    if len(prompt) > 5000:
+        print(prompt[:3000] + "\n...[TRUNCATED]...\n" + prompt[-2000:])
+    else:
+        print(prompt)
+    print("=====================\n")
+
+    for attempt in range(max_retries):
+        try:
+            if attempt > 0:
+                delay = base_delay * (2 ** (attempt - 1))
+                root_logger.info(f"Retry attempt {attempt + 1}/{max_retries} after {delay}s delay")
+                time.sleep(delay)
+
+            response = gemini_client.models.generate_content(
+                model=model,
+                contents=prompt,
+                config=GenerateContentConfig(
+                    tools=[],  # no tools => no searching
+                    response_modalities=["TEXT"],
+                    temperature=temperature
+                )
+            )
+
+            # Extract text from response
+            content = "".join(part.text for part in response.candidates[0].content.parts)
+            content = content.strip()
+
+            # Sanitize and validate the output
+            content = sanitize_json_content(content)
+            if not validate_response(content):
+                if attempt < max_retries - 1:
+                    root_logger.warning("Response validation failed, retrying...")
+                    continue
+                return "[Error: Response validation failed]"
+
+            print("\n=== GEMINI PRO OUTPUT ===")
+            print(content)
+            print("=====================\n")
+
+            return content
+
+        except Exception as e:
+            error_msg = f"Gemini Pro API call failed: {str(e)}"
+            root_logger.error(f"{error_msg} (attempt {attempt + 1}/{max_retries})")
+            if attempt < max_retries - 1:
+                continue
+            return f"[Error: {error_msg}]"
+
+    return "[Error: All retry attempts failed]"
 
 def call_deepseek_original(messages, model="deepseek-reasoner", temperature=0.1, fast_mode=False, max_retries=1, base_delay=2, timeout=90):
     """
@@ -810,7 +805,7 @@ def call_deepseek_original(messages, model="deepseek-reasoner", temperature=0.1,
                 model=fireworks_model,
                 messages=messages,
                 temperature=temperature,
-                max_tokens=20480,
+                #max_tokens=20480, # Removed as it's not a valid parameter
                 top_p=1,
                 presence_penalty=0,
                 frequency_penalty=0
@@ -859,7 +854,7 @@ def call_deepseek_original(messages, model="deepseek-reasoner", temperature=0.1,
             error_msg = f"DeepSeek rate limit exceeded: {str(e)}"
             root_logger.error(f"{error_msg} (attempt {attempt + 1}/{max_retries})")
             if attempt < max_retries - 1:
-                time.sleep(base_delay * 4)
+                time.sleep(base_delay * 4)  # Longer delay for rate limits
                 continue
             return f"[Error: {error_msg}]"
 
@@ -899,6 +894,7 @@ def call_deepseek(*args, **kwargs):
         return call_deepseek_original(*args, **kwargs)
     else:  # Default to O3MINI
         return call_o3mini(*args, **kwargs)
+
 
 
 def project_manager_agent(context, question, max_retries=3):
@@ -1811,15 +1807,13 @@ def leftover_references_evaluator(
 
 
 
-
-
 def final_revision_agent(context, question):
     """
     Creates or revises a comprehensive scientific text with citations using a multi-step approach:
-    1. Merge content without citations (Gemini Pro)
-    2. Extract and validate citations (Gemini Pro)
-    3. Generate reference list (Gemini Pro)
-    4. Integrate citations into text (Gemini Pro)
+    1. Merge content without citations (Gemini Pro -> O3-mini -> DeepSeek)
+    2. Handle citation placeholders (Gemini Pro)
+    3. Generate reference list (Gemini Pro -> O3-mini -> DeepSeek)
+    4. Integrate citations into text (Gemini Pro -> O3-mini -> DeepSeek)
     """
     # Parse context if it's a string
     if isinstance(context, str):
@@ -1831,8 +1825,37 @@ def final_revision_agent(context, question):
     # Extract drafts and references
     original_draft = context.get("original_draft", "")
     current_text = context.get("current_text", context.get("content", ""))
-    all_used_references = context.get("references", [])  # Get references
+    all_used_references = get_current_references()  # Get references from session
+    
+    # Add debug logging for references
+    root_logger.debug("References received in context:")
+    root_logger.debug(json.dumps(all_used_references, indent=2))
+    
+    if not all_used_references:
+        root_logger.warning("No references found in context - citations may be incomplete")
+    
     reviewer_feedback = context.get("reviewer_feedback", "")
+
+    def try_model_with_fallback(messages, step_name: str) -> str:
+        """Helper function to try models in sequence with proper logging"""
+        # Try Gemini Pro first
+        try:
+            response = call_gemini_pro(messages)
+            if response and not response.startswith("[Error"):
+                return response
+        except Exception as e:
+            root_logger.info(f"Gemini Pro {step_name} failed: {str(e)}, trying O3-mini")
+        
+        # Try O3-mini second
+        try:
+            response = call_o3mini(messages)
+            if response and not response.startswith("[Error"):
+                return response
+        except Exception as e:
+            root_logger.error(f"O3-mini {step_name} failed: {str(e)}, falling back to DeepSeek")
+        
+        # Final fallback to DeepSeek
+        return call_deepseek(messages)
 
     # Step 1: Merge Content (No Citations) - Using Gemini Pro
     merge_messages = [
@@ -1861,82 +1884,18 @@ def final_revision_agent(context, question):
         }
     ]
     
-    # Try Gemini Pro first
-    try:
-        merged_text = call_gemini_pro(merge_messages)
-    except Exception as e:
-        root_logger.info("Gemini Pro merge failed, trying O3-mini")
-        try:
-            merged_text = call_o3mini(merge_messages)
-        except Exception as e:
-            root_logger.error(f"O3-mini merge failed: {str(e)}")
-            merged_text = call_deepseek(merge_messages)
-    
+    merged_text = try_model_with_fallback(merge_messages, "content merge")
     root_logger.debug("Step 1 - Merged Text Output:")
     root_logger.debug(merged_text)
 
-    # Step 2: Extract Citations - Using Gemini Pro for consistency and larger context
-    citation_messages = [
-        {
-            "role": "system",
-            "content": (
-                "You are a citation extractor. Analyze the provided text and identify all claims " # Changed "drafts" to "text"
-                "that need citations. For each claim:\n"
-                "1. Identify the specific evidence needed\n"
-                "2. Match it with available references\n"
-                "3. Note any claims needing additional support\n\n"
-                "Return a JSON object with this structure:\n"
-                "{\n"
-                "  \"citations\": [\n"
-                "    {\n"
-                "      \"claim\": \"text of the claim\",\n"
-                "      \"references\": [\"url1\", \"url2\"],\n"
-                "      \"placement\": \"beginning|middle|end of claim\"\n"
-                "    }\n"
-                "  ],\n"
-                "  \"missing_evidence\": [\n"
-                "    {\n"
-                "      \"claim\": \"text of claim needing support\",\n"
-                "      \"type\": \"type of evidence needed\"\n"
-                "    }\n"
-                "  ]\n"
-                "}"
-            )
-        },
-        {
-            "role": "user",
-            "content": (
-                f"Merged Text:\n{merged_text}\n\n"
-                "Available References:\n"
-                f"{json.dumps(all_used_references, indent=2)}\n\n" # Pass references here
-                "Identify claims needing citations and match them with references."
-            )
-        }
-    ]
-    
-    # Try Gemini Pro first
-    try:
-        citation_response = call_gemini_pro(citation_messages)
-    except Exception as e:
-        root_logger.info("Gemini Pro citation extraction failed, trying O3-mini")
-        try:
-            citation_response = call_o3mini(citation_messages)
-        except Exception as e:
-            root_logger.error(f"O3-mini citation extraction failed: {str(e)}")
-            citation_response = call_deepseek(citation_messages)
-    
-    parsed_jsons = extract_json(citation_response)
-    
-    # Check if parsed_jsons is not empty and is a list
-    if parsed_jsons and isinstance(parsed_jsons, list):
-        citations_data = parsed_jsons[0] if parsed_jsons[0] else {"citations": [], "missing_evidence": []}
-    else:
-        citations_data = {"citations": [], "missing_evidence": []}  # Default empty structure
-    
-    root_logger.debug("Step 2 - Citations Data:")
-    root_logger.debug(json.dumps(citations_data, indent=2))
+    # Step 2: Handle Citation Placeholders - Using Gemini Pro for accuracy
+    if "[needs citation]" in merged_text.lower():
+        print("\nHandling citation placeholders...")
+        merged_text = handle_citation_placeholders(merged_text, all_used_references, question)
+        print("Citation placeholders handled.")
 
     # Step 3: Generate Reference List - Using Gemini Pro for accuracy
+    print("\nGenerating reference list...")
     reference_messages = [
         {
             "role": "system",
@@ -1956,32 +1915,19 @@ def final_revision_agent(context, question):
         {
             "role": "user",
             "content": (
-                "Citations Data:\n"
-                f"{json.dumps(citations_data, indent=2)}\n\n"
-                "Reference Metadata:\n"
-                f"{json.dumps(all_used_references, indent=2)}\n\n" # Pass references here
-                "Generate a complete APA-formatted reference list."
+                "Generate a complete APA-formatted reference list using the following metadata:\n"
+                f"{json.dumps(all_used_references, indent=2)}\n\n"
             )
         }
     ]
-    
-    # Try Gemini Pro first
-    try:
-        reference_list = call_gemini_pro(reference_messages)
-    except Exception as e:
-        root_logger.info("Gemini Pro reference list generation failed, trying O3-mini")
-        try:
-            reference_list = call_o3mini(reference_messages)
-        except Exception as e:
-            root_logger.error(f"O3-mini reference list generation failed: {str(e)}")
-            reference_list = call_deepseek(reference_messages)
-    
+    reference_list = try_model_with_fallback(reference_messages, "reference list generation")
     root_logger.debug("Step 3 - Reference List:")
     root_logger.debug(reference_list)
 
     # Step 4: Integrate Citations and Text - Using Gemini Pro for complex integration
+    print("\nIntegrating citations and text...")
     integration_messages = [
-        {
+       {
             "role": "system",
             "content": (
                 "You are a citation integration specialist. Integrate citations into the text following these rules:\n"
@@ -1989,8 +1935,7 @@ def final_revision_agent(context, question):
                 "2. Use proper APA format (Author et al., year)\n"
                 "3. Group related citations when multiple sources support one claim\n"
                 "4. Maintain flow and readability\n"
-                "5. Mark unsupported claims with [needs citation]\n"
-                "6. Add the reference list at the end\n\n"
+                "5. Ensure every claim has support, adding [needs citation] if necessary\n\n"
                 "Integration Guidelines:\n"
                 "- Place citations immediately after supported claims\n"
                 "- Group related citations in parentheses\n"
@@ -2002,26 +1947,14 @@ def final_revision_agent(context, question):
             "role": "user",
             "content": (
                 f"Text to Integrate:\n{merged_text}\n\n"
-                "Citations Data:\n"
-                f"{json.dumps(citations_data, indent=2)}\n\n"  # Pass citations data
                 "Reference List:\n"
-                f"{reference_list}\n\n" # Pass generated reference list
+                f"{reference_list}\n\n"
                 "Integrate the citations into the text and add the reference list at the end."
             )
         }
     ]
     
-    # Try Gemini Pro first
-    try:
-        final_version = call_gemini_pro(integration_messages)
-    except Exception as e:
-        root_logger.info("Gemini Pro final integration failed, trying O3-mini")
-        try:
-            final_version = call_o3mini(integration_messages)
-        except Exception as e:
-            root_logger.error(f"O3-mini final integration failed: {str(e)}")
-            final_version = call_deepseek(integration_messages)
-    
+    final_version = try_model_with_fallback(integration_messages, "citation integration")
     root_logger.debug("Step 4 - Final Version:")
     root_logger.debug(final_version)
 
@@ -4055,6 +3988,9 @@ def integrate_drafts(draft1, draft2, draft3, question):
     return call_deepseek_original(messages)  # Use original DeepSeek as final fallback
 
 
+
+
+
 async def run_research_pathway(user_query):
     """
     Updated research pathway using multiple LLMs for content generation.
@@ -4335,7 +4271,8 @@ async def run_research_pathway(user_query):
             "plan": pm_response,
             "citation_reviews": citation_reviews,
             "quality_review": review,
-            "content": final_version
+            "content": final_version,
+            "original_draft": content  # Added: pass the original merged content
         }
         final_version = final_revision_agent(
             json.dumps(final_context, indent=2),
@@ -4475,21 +4412,34 @@ async def single_search_engine(user_query: str, manager_plan: str) -> List[dict]
 
 
 
-
 def normalize_url(url: str) -> str:
     """Enhanced URL normalization with DOI handling"""
-    url = url.strip().rstrip('/').replace('\\', '/').lower()
-    # Handle DOI variations
-    if 'doi.org' in url or 'doi:' in url:
-        doi_match = re.search(r'(?:doi\.org/|doi:)(.+)$', url)
+    # Parse URL to preserve case in path and query
+    try:
+        parsed = urlparse(url.strip())
+        # Lowercase scheme and netloc, preserve case for path and query
+        normalized = parsed.scheme.lower() + '://' + parsed.netloc.lower() + parsed.path + parsed.query
+        # Remove trailing slash and normalize backslashes
+        normalized = normalized.rstrip('/').replace('\\', '/')
+    except Exception:
+        # If URL parsing fails, fall back to basic normalization
+        normalized = url.strip().rstrip('/').replace('\\', '/')
+    
+    # Handle DOI variations, preserving case
+    if 'doi.org' in normalized.lower() or 'doi:' in normalized.lower():
+        doi_match = re.search(r'(?:doi\.org/|doi:)(.+)$', normalized)
         if doi_match:
-            return f"doi:{doi_match.group(1)}"
-    return url
+            return f"doi:{doi_match.group(1)}"  # Keep DOI case
+    
+    return normalized
+
+
 
 def validate_final_references(final_text: str, final_reference_list: List[dict] = None) -> List[dict]:
     """
     Validate citations, categorizing problems for targeted handling.
-    Returns a list of dictionaries, each describing a specific problem.
+    Returns a list of problem dictionaries.  Focuses on *identifying* problems,
+    not fixing them.
     """
     if final_reference_list is None:
         final_reference_list = get_current_references()
@@ -4808,61 +4758,71 @@ async def final_revision_controller(
 
 
 
-
-
-
 def handle_citation_placeholders(content: str, all_used_references: List[dict], user_query: str) -> str:
     """
-    Processes the content that contains [needs citation] placeholders by attempting to integrate
-    appropriate citations from the available references. If no suitable reference is found,
-    it leaves the placeholder unchanged.
+    Processes content with [needs citation] placeholders using multiple LLM models for accuracy.
     """
-
     placeholders = re.findall(r'\[needs citation\]', content, re.IGNORECASE)
     if not placeholders:
-        return content  # Nothing to do
+        return content
 
     messages = [
         {
             "role": "system",
             "content": (
                 "You are a Citation Integration Specialist. Your task is to replace [needs citation] "
-                "placeholders in the provided text with appropriate citation details extracted from the "
-                "available references. If a suitable reference is found, insert an APA-style in-text "
-                "citation: (Author, Year). If no suitable reference is found for a placeholder, leave it as is."
+                "placeholders with appropriate citations from available references. Follow these rules:\n\n"
+                "1. For each [needs citation], examine the claim immediately preceding it\n"
+                "2. Search available references for supporting evidence\n"
+                "3. If found, insert APA-style citation (Author, Year)\n"
+                "4. If multiple references support the claim, use (Author1, Year1; Author2, Year2)\n"
+                "5. If no matching reference exists, leave [needs citation] unchanged\n"
+                "6. Do not modify any other text or existing citations\n"
+                "7. Preserve all formatting and structure"
             )
         },
         {
             "role": "user",
             "content": (
                 f"Research Question: {user_query}\n\n"
-                "AVAILABLE REFERENCES:\n"
-                f"{json.dumps([{k: v for k, v in ref.items() if k in ['title', 'authors', 'year', 'url', 'doi']} for ref in all_used_references], indent=2)}\n\n"
-                "CONTENT WITH [needs citation] PLACEHOLDERS:\n"
+                "Available References:\n"
+                f"{json.dumps([{k: v for k, v in ref.items() if k in ['title', 'authors', 'year', 'url', 'doi', 'abstract', 'snippet']} for ref in all_used_references], indent=2)}\n\n"
+                "Text with [needs citation] placeholders:\n"
                 f"{content}\n\n"
-                "Instructions:\n"
-                "1. For each [needs citation] placeholder, see if any reference can support that preceding claim.\n"
-                "2. Insert an APA-style (Author, Year) immediately following the claim.\n"
-                "3. If none of the references match, leave [needs citation] in place.\n"
-                "4. Do not remove or alter any other text."
+                "Replace appropriate [needs citation] placeholders with citations. "
+                "Leave placeholders unchanged if no suitable reference is found."
             )
         }
     ]
 
+    # Try models in sequence with fallbacks
     try:
-        # Try multiple models in your preferred order
-        for model_func in [call_o3mini, call_gemini_pro, call_deepseek_original]:
-            try:
-                result = model_func(messages)
-                if result and not result.startswith("[Error]"):
-                    return result
-            except Exception as e:
-                root_logger.error(f"{model_func.__name__} failed in handle_citation_placeholders: {e}")
-                continue
-        return content  # Return original if all attempts fail
-    except Exception as e:
-        root_logger.error(f"handle_citation_placeholders encountered an error: {e}")
+        # Try Gemini Pro first
+        result = call_gemini_pro(messages)
+        if result and not result.startswith("[Error"):
+            return result
+        
+        root_logger.info("Gemini Pro citation handling failed, trying O3-mini")
+        
+        # Try O3-mini second
+        result = call_o3mini(messages)
+        if result and not result.startswith("[Error"):
+            return result
+            
+        root_logger.info("O3-mini citation handling failed, falling back to DeepSeek")
+        
+        # Final fallback to DeepSeek
+        result = call_deepseek(messages)
+        if result and not result.startswith("[Error"):
+            return result
+            
+        root_logger.warning("All citation handling attempts failed")
         return content
+        
+    except Exception as e:
+        root_logger.error(f"Citation handling error: {str(e)}")
+        return content
+
 
 
 
@@ -4877,6 +4837,8 @@ def get_current_references() -> List[dict]:
     except (FileNotFoundError, json.JSONDecodeError) as e:
         root_logger.warning(f"Could not load references: {e}")
         return []
+
+
 
 async def fetch_missing_metadata(urls: List[str]) -> List[dict]:
     """
@@ -4926,18 +4888,11 @@ async def fetch_missing_metadata(urls: List[str]) -> List[dict]:
                 if new_ref:
                     # Merge new_ref into existing_refs
                     # Check if we already have it (by normalized URL or DOI)
-                    existing = next(
-                        (r for r in existing_refs
-                         if (r.get('url') and normalize_url(r['url']) == normalize_url(new_ref.get('url')))
-                         or (r.get('doi') and r.get('doi') == new_ref.get('doi'))),
-                        None
-                    )
+                    existing = next((ref for ref in existing_refs if (ref.get('url') and normalize_url(ref['url']) == normalize_url(new_ref.get('url'))) or (ref.get('doi') and ref.get('doi') == new_ref.get('doi'))), None)
                     if existing:
                         # Update existing reference with any new metadata
                         for k, v in new_ref.items():
-                            if k not in existing or (
-                                isinstance(v, str) and len(v) > len(existing.get(k, ''))
-                            ):
+                            if k not in existing or (isinstance(v,str) and len(v) > len(existing.get(k,''))):
                                 existing[k] = v
                     else:
                         existing_refs.append(new_ref)
@@ -4950,6 +4905,10 @@ async def fetch_missing_metadata(urls: List[str]) -> List[dict]:
                 continue
 
     return complete_refs
+
+
+
+
 
 def final_revision_router_agent(final_text: str, user_question: str) -> dict:
     """
@@ -4964,8 +4923,7 @@ def final_revision_router_agent(final_text: str, user_question: str) -> dict:
         {
             "role": "system",
             "content": (
-                "You are a final revision router evaluating both content quality and academic rigor. "
-                "Review the text for:\n\n"
+                "You are a final revision router evaluating both content quality and academic rigor. Review the text for:\n\n"
                 "1. Reference Completeness:\n"
                 "   - Every citation MUST include all required metadata:\n"
                 "     * Author names\n"
@@ -5042,6 +5000,7 @@ def final_revision_router_agent(final_text: str, user_question: str) -> dict:
             "urls": []
         }
 
+
 async def main():
     """
     Simplified main function that runs a single research pathway and preserves domain references
@@ -5080,11 +5039,6 @@ async def main():
     except Exception as e:
         root_logger.error(f"Failed to save final version: {e}")
 
-
-
-
-
 if __name__ == "__main__":
     asyncio.run(main())
-
 
