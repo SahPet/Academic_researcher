@@ -29,8 +29,6 @@ from selenium.webdriver.support import expected_conditions as EC
 
 import html2text
 import httpx
-
-# Add to imports at top of file
 from scrapingbee import ScrapingBeeClient
 import base64
 import json
