@@ -49,6 +49,8 @@ import os
 from enum import Enum
 import traceback
 import brotli
+from typing import Union
+
 
 # Model selection configuration
 class ModelChoice(Enum):
@@ -1805,8 +1807,6 @@ def leftover_references_evaluator(
 
 
 
-
-
 def final_revision_agent(context, question):
     """
     Creates or revises a comprehensive scientific text with citations using a multi-step approach:
@@ -1959,7 +1959,6 @@ def final_revision_agent(context, question):
     root_logger.debug(final_version)
 
     return final_version
-
 
 
 
@@ -2763,20 +2762,47 @@ def fetch_with_parsehub(url: str) -> Tuple[str, bool, dict]:
 
 
 
-def extract_metadata(text: str) -> dict:
-    """Extract citation metadata from text content"""
-    # DOI detection
-    doi_match = re.search(r'\b(10\.\d{4,9}/[-._;()/:A-Z0-9]+)\b', text, re.I)
-    # Year detection
-    year_match = re.search(r'(19|20)\d{2}', text)
-    # Author detection (simple pattern)
-    author_match = re.search(r'by\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3})', text)
-    
-    return {
-        'doi': doi_match.group(1) if doi_match else None,
-        'year': year_match.group(0) if year_match else None,
-        'authors': [author_match.group(1)] if author_match else []
-    }
+async def extract_metadata(text: str) -> dict:
+    """
+    Extract metadata from text content using multiple strategies.
+    Prioritizes structured metadata (meta tags, JSON-LD) and falls back to regex.
+    """
+    metadata = {}
+    soup = BeautifulSoup(text, 'html.parser')
+
+    # 1. Try <meta name="citation_..."> tags
+    meta_data = parse_citation_meta_tags(soup)
+    metadata.update(meta_data)
+
+    # 2. Try JSON-LD
+    ld_data = parse_ld_json_for_scholarly_article(soup)
+    for k, v in ld_data.items():
+        if v and not metadata.get(k):
+            metadata[k] = v
+
+    # 3. Try Dublin Core
+    dc_data = parse_dublin_core_metadata(soup)
+    for k, v in dc_data.items():
+        if v and not metadata.get(k):
+            metadata[k] = v
+
+    # 4. Fallback to regex-based extraction (if needed)
+    if not metadata.get("year"):
+        year_match = re.search(r'(19|20)\d{2}', text)
+        if year_match:
+            metadata["year"] = year_match.group(0)
+
+    if not metadata.get("authors"):
+        author_match = re.search(r'by\s+([A-Za-z]+(?:\s+[A-Za-z]+){0,2})', text)
+        if author_match:
+            metadata["authors"] = [author_match.group(1)]
+
+    if not metadata.get("doi"):
+        doi_match = re.search(r'\b(10\.\d{4,9}/[-._;()/:A-Z0-9]+)\b', text, re.I)
+        if doi_match:
+            metadata["doi"] = doi_match.group(1)
+
+    return metadata
 
 async def enrich_with_crossref(doi: str) -> dict:
     """Enrich metadata using Crossref API"""
@@ -3082,7 +3108,26 @@ def extract_doi_from_url(url: str) -> Optional[str]:
                 return doi
     return None
 
-
+async def extract_metadata_from_content(text: str) -> dict:
+    """Extract metadata from text content using multiple strategies."""
+    metadata = {}
+    
+    # Try to extract year
+    year_match = re.search(r'(19|20)\d{2}', text)
+    if year_match:
+        metadata["year"] = year_match.group(0)
+        
+    # Try to extract DOI
+    doi_match = re.search(r'\b(10\.\d{4,9}/[-._;()/:A-Z0-9]+)\b', text, re.I)
+    if doi_match:
+        metadata["doi"] = doi_match.group(1)
+        
+    # Try to extract authors
+    author_match = re.search(r'by\s+([A-Za-z]+(?:\s+[A-Za-z]+){0,2})', text)
+    if author_match:
+        metadata["authors"] = [author_match.group(1)]
+        
+    return metadata
 
 async def fetch_full_text_async(
     url: str,
@@ -3519,22 +3564,6 @@ def extract_from_scholarly_jsonld(item: dict) -> dict:
     return result
 
 
-
-async def extract_metadata_from_content(text: str) -> dict:
-    """Extract metadata from content using multiple methods"""
-    metadata = {}
-    
-    # Try multiple extraction methods
-    try:
-        # Basic metadata
-        metadata.update(extract_metadata(text))
-        
-        # Additional metadata extraction methods can be added here
-        
-    except Exception as e:
-        root_logger.error(f"Metadata extraction failed: {str(e)}")
-    
-    return metadata
 
 def store_search_results(search_results, filename=None):
     """Store search results with detailed logging"""
@@ -4290,14 +4319,15 @@ async def run_research_pathway(user_query):
                 semaphore = asyncio.Semaphore(5)  # Limit concurrent requests
                 for citation in missing_citations:
                     try:
-                        if citation.startswith('10.'):  # DOI
-                            text, error, metadata = await fetch_with_crossref(citation)
+                        citation_detail = citation['detail']  # Extract the detail field
+                        if citation_detail.startswith('10.'):  # DOI
+                            text, error, metadata = await fetch_with_crossref(citation_detail)
                         else:  # URL
                             text, error, metadata = await fetch_full_text_async(
-                                citation, session, semaphore)
+                                citation_detail, session, semaphore)
                         if not error and metadata:
                             # Merge the new reference using our established merge logic
-                            nurl = citation.strip().rstrip('/').replace('\\', '/').lower()
+                            nurl = citation_detail.strip().rstrip('/').replace('\\', '/').lower()
                             duplicate = next((ref for ref in all_used_references 
                                            if ref.get('url', '').strip().rstrip('/').replace('\\', '/').lower() == nurl), None)
                             if duplicate:
@@ -4414,6 +4444,10 @@ async def single_search_engine(user_query: str, manager_plan: str) -> List[dict]
 
 def normalize_url(url: str) -> str:
     """Enhanced URL normalization with DOI handling"""
+    # Handle None or empty input
+    if not url:
+        return ""
+        
     # Parse URL to preserve case in path and query
     try:
         parsed = urlparse(url.strip())
@@ -4432,8 +4466,6 @@ def normalize_url(url: str) -> str:
             return f"doi:{doi_match.group(1)}"  # Keep DOI case
     
     return normalized
-
-
 
 def validate_final_references(final_text: str, final_reference_list: List[dict] = None) -> List[dict]:
     """
@@ -4840,71 +4872,141 @@ def get_current_references() -> List[dict]:
 
 
 
-async def fetch_missing_metadata(urls: List[str]) -> List[dict]:
+root_logger = logging.getLogger()
+
+
+
+async def fetch_missing_metadata(problems: List[str]) -> List[dict]:
     """
-    Fetch metadata for URLs or DOIs that have incomplete citation information.
-    Now leverages the updated handle_html_content for robust meta parsing.
+    Fetches missing metadata for incomplete citations, allowing direct DOI or URL strings.
+    Prioritizes DOI resolution (via Crossref/Semantic Scholar) over raw URL scraping.
+    
+    Returns a list of references (dict) with enriched metadata.
+    If no metadata can be fetched for a given problem, that problem is skipped.
+    
+    NOTE: We now handle "Unhandled problem type: https://doi.org/..." by checking
+    if the string contains a DOI or is a valid URL, even if it doesn't start with
+    'Missing reference for ...' or 'Incomplete metadata for ...'.
     """
     complete_refs = []
 
-    # Load existing references
-    existing_refs = get_current_references()
-
-    # Clean up URLs that might have error messages
-    cleaned_urls = []
-    for url in urls:
-        if url is None:
-            root_logger.error("URL is None")
-            continue
-        if isinstance(url, str):
-            if url.startswith("Missing reference for URL:"):
-                url = url.replace("Missing reference for URL:", "").strip()
-            elif url.startswith("Missing reference for DOI:"):
-                url = url.replace("Missing reference for DOI:", "").strip()
-            cleaned_urls.append(url)
+    # Load existing references from the session file
+    existing_refs = []
+    refs_path = os.path.join(OUTPUT_FOLDER, "search_results", "session_picked_references.json")
+    try:
+        with open(refs_path, 'r', encoding='utf-8') as f:
+            existing_refs = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError) as e:
+        root_logger.warning(f"Could not load existing references: {e}")
+        existing_refs = []
 
     async with aiohttp.ClientSession() as session:
-        semaphore = asyncio.Semaphore(5)  # Limit concurrent requests
+        semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
 
-        for url in cleaned_urls:
-            try:
-                new_ref = None
-                # If it's a raw DOI
-                if url.startswith('10.'):
-                    # Attempt the chain: google_scholar -> semantic_scholar -> crossref
-                    for method in [fetch_with_google_scholar, fetch_with_semantic_scholar, fetch_with_crossref]:
-                        text, error, metadata = await method(url)
-                        if not error and metadata:
-                            new_ref = metadata
-                            break
+        for problem in problems:
+            # --- 1) Handle known prefixes first ---
+            # (backward-compatibility with older code that generated these strings)
+            if problem.startswith("Missing reference for URL:"):
+                url = problem.replace("Missing reference for URL:", "").strip()
+                root_logger.info(f"[fetch_missing_metadata] Attempting metadata fetch for URL: {url}")
+                text, error, metadata = await fetch_full_text_async(url, session, semaphore)
+                if not error and metadata:
+                    complete_refs.append(metadata)
                 else:
-                    # It's presumably an HTTP URL
-                    text, error, metadata = await fetch_full_text_async(url, session, semaphore)
+                    root_logger.warning(f"No metadata could be fetched for URL {url}")
+
+            elif problem.startswith("Missing reference for DOI:"):
+                doi = problem.replace("Missing reference for DOI:", "").strip()
+                root_logger.info(f"[fetch_missing_metadata] Attempting metadata fetch for DOI: {doi}")
+                # Try academic APIs first (Semantic Scholar / Crossref)
+                for method in [fetch_with_semantic_scholar, fetch_with_crossref]:
+                    text, error, metadata = await method(doi)
                     if not error and metadata:
-                        # fetch_full_text_async internally calls handle_html_content() or handle_pdf_content()
-                        # so metadata might already be robust
-                        new_ref = metadata
+                        complete_refs.append(metadata)
+                        break
+                else:
+                    root_logger.warning(f"No metadata could be fetched for DOI {doi}")
 
-                if new_ref:
-                    # Merge new_ref into existing_refs
-                    # Check if we already have it (by normalized URL or DOI)
-                    existing = next((ref for ref in existing_refs if (ref.get('url') and normalize_url(ref['url']) == normalize_url(new_ref.get('url'))) or (ref.get('doi') and ref.get('doi') == new_ref.get('doi'))), None)
-                    if existing:
-                        # Update existing reference with any new metadata
-                        for k, v in new_ref.items():
-                            if k not in existing or (isinstance(v,str) and len(v) > len(existing.get(k,''))):
-                                existing[k] = v
-                    else:
-                        existing_refs.append(new_ref)
-                    complete_refs.append(new_ref)
-                    # Store updated references after each successful parse
-                    store_search_results(existing_refs) # THIS WAS THE MISSING LINE
+            elif problem.startswith("Incomplete metadata for URL:"):
+                url = problem.replace("Incomplete metadata for URL:", "").strip()
+                root_logger.info(f"[fetch_missing_metadata] Attempting additional metadata fetch for URL: {url}")
+                text, error, metadata = await fetch_full_text_async(url, session, semaphore)
+                if not error and metadata:
+                    complete_refs.append(metadata)
+                else:
+                    root_logger.warning(f"No additional metadata found for URL {url}")
 
-            except Exception as e:
-                root_logger.error(f"Error fetching metadata for {url}: {str(e)}")
-                continue
+            elif problem.startswith("Incomplete metadata for DOI:"):
+                doi = problem.replace("Incomplete metadata for DOI:", "").strip()
+                root_logger.info(f"[fetch_missing_metadata] Attempting additional metadata fetch for DOI: {doi}")
+                for method in [fetch_with_semantic_scholar, fetch_with_crossref]:
+                    text, error, metadata = await method(doi)
+                    if not error and metadata:
+                        complete_refs.append(metadata)
+                        break
+                else:
+                    root_logger.warning(f"No additional metadata found for DOI {doi}")
+
+            # --- 2) NEW: Handle direct DOIs or URLs (the "unhandled" cases) ---
+            elif "doi.org/" in problem.lower() or re.match(r'^10\.\d{4,9}/', problem):
+                # This handles raw strings like 'https://doi.org/10.1038/s42256-023-00652-2'
+                # or direct DOIs like '10.1038/s42256-023-00652-2'
+                maybe_doi = problem.strip()
+                root_logger.info(f"[fetch_missing_metadata] Detected direct DOI or 'doi.org' string: {maybe_doi}")
+                # Attempt resolution via known methods
+                for method in [fetch_with_semantic_scholar, fetch_with_crossref]:
+                    text, error, metadata = await method(maybe_doi)
+                    if not error and metadata:
+                        complete_refs.append(metadata)
+                        break
+                else:
+                    root_logger.warning(f"No metadata fetched for direct DOI/string: {maybe_doi}")
+
+            elif is_valid_url(problem.strip()):
+                # If we detect a plain URL that doesn't match the older prefix patterns
+                url = problem.strip()
+                root_logger.info(f"[fetch_missing_metadata] Detected direct URL: {url}")
+                text, error, metadata = await fetch_full_text_async(url, session, semaphore)
+                if not error and metadata:
+                    complete_refs.append(metadata)
+                else:
+                    root_logger.warning(f"No metadata could be extracted for direct URL {url}")
+
+            else:
+                # If it doesn't match any known pattern or direct URL/DOI
+                root_logger.warning(f"Unhandled problem type: {problem}")
+
+    # --- 3) Merge fetched refs into existing_refs ---
+    for new_ref in complete_refs:
+        # Look for an existing entry in existing_refs that shares the same URL or DOI
+        existing = None
+        new_doi = new_ref.get('doi')
+        new_url = new_ref.get('url')
+        for ref in existing_refs:
+            has_same_doi = (new_doi and ref.get('doi') and new_doi.lower() == ref['doi'].lower())
+            has_same_url = (
+                new_url
+                and ref.get('url')
+                and normalize_url(new_url) == normalize_url(ref['url'])
+            )
+            if has_same_doi or has_same_url:
+                existing = ref
+                break
+
+        if existing:
+            # Merge metadata, preferring new data when existing is missing or shorter
+            for k, v in new_ref.items():
+                if k not in existing or (isinstance(v, str) and len(v) > len(existing.get(k, ''))):
+                    existing[k] = v
+        else:
+            existing_refs.append(new_ref)
+
+    # --- 4) Store updated references back to session ---
+    if complete_refs:
+        store_search_results(existing_refs)
 
     return complete_refs
+
 
 
 
