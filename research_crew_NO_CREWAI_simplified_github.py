@@ -50,6 +50,8 @@ from enum import Enum
 import traceback
 import brotli
 from typing import Union
+import anthropic
+
 
 
 # Model selection configuration
@@ -73,18 +75,20 @@ FIREWORKS_API_KEY = os.getenv("FIREWORKS_API_KEY")
 SCRAPINGBEE_API_KEY = os.getenv("SCRAPINGBEE_API_KEY")
 PARSEHUB_API_KEY = os.getenv("PARSEHUB_API_KEY")
 PARSEHUB_PROJECT_TOKEN = os.getenv("PARSEHUB_PROJECT_TOKEN")
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 
 
 # Validate required API keys
 if not OPENAI_API_KEY:
     raise ValueError("OPENAI_API_KEY not found in environment variables")
 
-
 # Initialize clients
-os.environ["OPENAI_API_KEY"] = OPENAI_API_KEY  # Set for OpenAI client
+anthropic_client = anthropic.Client(api_key=ANTHROPIC_API_KEY)
 gemini_client = genai.Client(api_key=GEMINI_API_KEY)
-GEMINI_FLASH_THINKING_ID="gemini-2.0-flash-thinking-exp-01-21"
+
+
 # Add to the model constants at the top
+GEMINI_FLASH_THINKING_ID="gemini-2.0-flash-thinking-exp-01-21"
 GEMINI_PRO_ID = "gemini-2.0-pro-exp-02-05"
 
 
@@ -600,6 +604,76 @@ def call_o3mini(messages, model="o3-mini", temperature=0.1, fast_mode=False, max
 
     return "[Error: All retry attempts failed]"
 
+
+
+def call_claude35_sonnet(
+    messages: list,
+    temperature: float = 0.0,
+    max_tokens: int = 4096,
+    max_retries: int = 1,
+    base_delay: int = 2,
+    timeout: int = 90
+) -> str:
+    """
+    Calls Claude 3.5 Sonnet via the Anthropic API using the messages-based interface.
+    
+    Converts the provided list of messages into a system message and conversational context,
+    then calls the API with the appropriate parameters.
+    
+    Args:
+        messages: List of messages ({'role': 'system'|'user'|'assistant', 'content': str }).
+        temperature: Generation temperature.
+        max_tokens: Maximum tokens to generate.
+        max_retries: Number of retry attempts for error handling.
+        base_delay: Base delay in seconds for exponential backoff.
+        timeout: (Not used directly in anthropic.Client but kept for consistency.)
+        
+    Returns:
+        The model's string response or an error message.
+    """
+    # Separate the system prompt from the conversation messages. The first system message is used.
+    system_message = ""
+    conversation_messages = []
+    for msg in messages:
+        if msg["role"].lower() == "system" and not system_message:
+            system_message = msg["content"].strip()
+        else:
+            conversation_messages.append(msg)
+    
+    root_logger.debug("System message for Claude 3.5 Sonnet: " + system_message)
+    root_logger.debug("Conversation messages: " + str(conversation_messages))
+
+    for attempt in range(max_retries):
+        try:
+            if attempt > 0:
+                delay = base_delay * (2 ** (attempt - 1))
+                root_logger.info(f"[Claude 3.5 Sonnet] Retry attempt {attempt+1}/{max_retries} after {delay}s delay...")
+                time.sleep(delay)
+
+            response = anthropic_client.messages.create(
+                model="claude-3-5-sonnet-latest",
+                max_tokens=max_tokens,
+                temperature=temperature,
+                system=system_message,
+                messages=conversation_messages
+            )
+
+            content = response.completion.strip()
+            if not content:
+                if attempt < max_retries - 1:
+                    continue
+                return "[Error: Empty Claude 3.5 Sonnet response]"
+            
+            return content
+
+        except Exception as e:
+            root_logger.error(f"[Claude 3.5 Sonnet] Error on attempt {attempt+1}: {e}")
+            if attempt == max_retries - 1:
+                return f"[Error: Claude 3.5 Sonnet call failed after {max_retries} attempts: {str(e)}]"
+
+    return "[Error: Unknown error in call_claude35_sonnet]"
+
+
 def call_gemini(messages, model=GEMINI_FLASH_THINKING_ID, temperature=0.1, fast_mode=False, max_retries=1, base_delay=2, timeout=90):
     """
     Gemini version of the caller with retry logic and response sanitization.
@@ -623,7 +697,7 @@ def call_gemini(messages, model=GEMINI_FLASH_THINKING_ID, temperature=0.1, fast_
     
     prompt = "\n".join(prompt_parts)
     
-    print("\n=== GEMINI INPUT ===")
+    print("\n=== GEMINI 2.0 Flash Thinking INPUT ===")
     if len(prompt) > 5000:
         print(prompt[:3000] + "\n...[TRUNCATED]...\n" + prompt[-2000:])
     else:
@@ -1165,7 +1239,8 @@ def content_developer_agent(context, question, manager_response, references_data
         question: Research question to address
         manager_response: Project manager's analysis
         references_data: Available references and their metadata
-        model_choice: Optional model override ('gemini', 'o3mini', 'deepseek', or None for default)
+        model_choice: Optional model override ('claude35_sonnet', 'gemini_pro', 'deepseek',
+                      or anything else for default fallback to O3-mini)
     """
     messages = [
         {
@@ -1219,53 +1294,25 @@ def content_developer_agent(context, question, manager_response, references_data
         }
     ]
     
-    # Flatten messages into a single prompt
+    # Flatten messages into a single prompt and wrap in a single message.
     flattened_prompt = flatten_messages(messages)
-    
-    # Wrap the flattened prompt in a single message
     final_message = [{"role": "user", "content": flattened_prompt}]
     
-    # Define fallback order for each model
-    fallback_map = {
-        "gemini": ["deepseek", "o3mini"],
-        "o3mini": ["gemini", "deepseek"],
-        "deepseek": ["gemini", "o3mini"]
-    }
+    # Directly choose the appropriate function based on model_choice.
+    if model_choice is not None:
+        model_choice_lower = model_choice.lower()
+    else:
+        model_choice_lower = "deepseek"  # Default to DeepSeek if not provided.
     
-    def try_model(model_name: str) -> Optional[str]:
-        """Helper function to try a specific model"""
-        try:
-            if "gemini" in model_name.lower():
-                response = call_gemini(final_message)
-            elif "o3mini" in model_name.lower():
-                response = call_o3mini(final_message)
-            elif "deepseek" in model_name.lower():
-                response = call_deepseek_original(final_message)
-            else:
-                response = call_deepseek(final_message)
-                
-            if response and not response.startswith("[Error"):
-                return response
-        except Exception as e:
-            root_logger.error(f"{model_name} generation failed: {str(e)}")
-        return None
-
-    # Try primary model first
-    model_choice_lower = (model_choice or "deepseek").lower()
-    response = try_model(model_choice_lower)
-    if response:
-        return response
-        
-    # Try fallbacks if primary fails
-    for fallback in fallback_map.get(model_choice_lower, []):
-        print(f"\nTrying fallback model: {fallback}")
-        response = try_model(fallback)
-        if response:
-            return response
-            
-    # If all attempts fail, use default DeepSeek as final fallback
-    print("\nAll specified models failed, trying default DeepSeek...")
-    return call_deepseek(final_message)
+    if model_choice_lower == "claude35_sonnet":
+        return call_claude35_sonnet(final_message)
+    elif model_choice_lower == "gemini_pro":
+        return call_gemini_pro(final_message)
+    elif model_choice_lower == "deepseek":
+        return call_deepseek_original(final_message)
+    else:
+        # Fallback to O3-mini if no valid model_choice is provided.
+        return call_o3mini(final_message)
 
 
 
@@ -1810,10 +1857,10 @@ def leftover_references_evaluator(
 def final_revision_agent(context, question):
     """
     Creates or revises a comprehensive scientific text with citations using a multi-step approach:
-    1. Merge content without citations (Gemini Pro -> O3-mini -> DeepSeek)
-    2. Handle citation placeholders (Gemini Pro)
-    3. Generate reference list (Gemini Pro -> O3-mini -> DeepSeek)
-    4. Integrate citations into text (Gemini Pro -> O3-mini -> DeepSeek)
+    1. Merge content without citations (Sonnet 3‑5 -> Gemini Pro -> O3‑mini -> DeepSeek)
+    2. Handle citation placeholders (Sonnet 3‑5 -> Gemini Pro)
+    3. Generate reference list (Sonnet 3‑5 -> Gemini Pro -> O3‑mini -> DeepSeek)
+    4. Integrate citations into text (Sonnet 3‑5 -> Gemini Pro -> O3‑mini -> DeepSeek)
     """
     # Parse context if it's a string
     if isinstance(context, str):
@@ -1837,22 +1884,30 @@ def final_revision_agent(context, question):
     reviewer_feedback = context.get("reviewer_feedback", "")
 
     def try_model_with_fallback(messages, step_name: str) -> str:
-        """Helper function to try models in sequence with proper logging"""
-        # Try Gemini Pro first
+        """Helper function to try models in sequence in the order: Sonnet 3‑5 -> Gemini Pro -> O3‑mini -> DeepSeek."""
+        # Try Sonnet 3‑5 first
+        try:
+            response = call_claude35_sonnet(messages)
+            if response and not response.startswith("[Error"):
+                return response
+        except Exception as e:
+            root_logger.info(f"Sonnet 3‑5 {step_name} failed: {str(e)}, trying Gemini Pro")
+        
+        # Try Gemini Pro next
         try:
             response = call_gemini_pro(messages)
             if response and not response.startswith("[Error"):
                 return response
         except Exception as e:
-            root_logger.info(f"Gemini Pro {step_name} failed: {str(e)}, trying O3-mini")
+            root_logger.info(f"Gemini Pro {step_name} failed: {str(e)}, trying O3‑mini")
         
-        # Try O3-mini second
+        # Try O3‑mini next
         try:
             response = call_o3mini(messages)
             if response and not response.startswith("[Error"):
                 return response
         except Exception as e:
-            root_logger.error(f"O3-mini {step_name} failed: {str(e)}, falling back to DeepSeek")
+            root_logger.error(f"O3‑mini {step_name} failed: {str(e)}, falling back to DeepSeek")
         
         # Final fallback to DeepSeek
         return call_deepseek(messages)
@@ -1961,6 +2016,44 @@ def final_revision_agent(context, question):
     return final_version
 
 
+def try_model_with_fallback(messages, step_name: str) -> str:
+    """
+    Helper function to try models in sequence: Sonnet 3‑5 -> Gemini Pro -> O3‑mini -> DeepSeek.
+    
+    Args:
+        messages: List of message dictionaries to send to the model
+        step_name: Name of the step for logging purposes
+    
+    Returns:
+        str: Model response
+    """
+    # Try Sonnet 3‑5 first
+    try:
+        response = call_claude35_sonnet(messages)
+        if response and not response.startswith("[Error"):
+            return response
+    except Exception as e:
+        root_logger.info(f"Sonnet 3‑5 {step_name} failed: {str(e)}, trying Gemini Pro")
+    
+    # Try Gemini Pro next
+    try:
+        response = call_gemini_pro(messages)
+        if response and not response.startswith("[Error"):
+            return response
+    except Exception as e:
+        root_logger.info(f"Gemini Pro {step_name} failed: {str(e)}, trying O3‑mini")
+    
+    # Try O3‑mini next
+    try:
+        response = call_o3mini(messages)
+        if response and not response.startswith("[Error"):
+            return response
+    except Exception as e:
+        root_logger.error(f"O3‑mini {step_name} failed: {str(e)}, falling back to DeepSeek")
+    
+    # Final fallback to DeepSeek
+    return call_deepseek(messages)
+
 
 
 def single_citation_check(call_deepseek, url, full_text, fallback_metadata, question, draft_context):
@@ -2067,13 +2160,18 @@ def single_citation_check(call_deepseek, url, full_text, fallback_metadata, ques
         }
     ]
 
+    # First try with try_model_with_fallback
+    response = try_model_with_fallback(messages, "citation check")
+    if response and not response.startswith("[Error"):
+        return response
+
+    # If that fails, fall back to original retry logic with Gemini Pro
     for attempt in range(max_retries):
         try:
-            # Use call_gemini instead of call_deepseek for higher token capacity
             timeout = base_timeout * (attempt + 1)
             root_logger.info(f"Citation check attempt {attempt + 1}/{max_retries} for {url} with {timeout}s timeout")
             
-            response = call_gemini(messages, timeout=timeout)
+            response = call_gemini_pro(messages, timeout=timeout)
             if response and not response.startswith("[Error"):
                 return response
                 
@@ -2093,7 +2191,6 @@ def single_citation_check(call_deepseek, url, full_text, fallback_metadata, ques
                 return f"[Error: Citation check failed after {max_retries} attempts: {str(e)}]"
 
     return f"[Error: Citation check failed after {max_retries} attempts with timeouts]"
-
 
 
 
@@ -3956,6 +4053,8 @@ async def iterative_search_engine(
 def integrate_drafts(draft1, draft2, draft3, question):
     """
     Integrates multiple drafts into a single improved version with model fallbacks.
+    It attempts to use Sonnet for integration first; if that fails, it falls back to Gemini Pro,
+    and then to DeepSeekR1 as the final backup.
     """
     messages = [
         {
@@ -4001,20 +4100,20 @@ def integrate_drafts(draft1, draft2, draft3, question):
             root_logger.error(f"{model_func.__name__} failed: {str(e)}")
         return None
 
-    # First try O3-mini
-    result = try_model(call_o3mini, messages)
+    # First try Sonnet integration
+    result = try_model(call_claude35_sonnet, messages)
     if result:
         return result
 
-    # Fallback to Gemini
-    print("\nFalling back to Gemini for integration...")
-    result = try_model(call_gemini, messages)
+    # Fallback to Gemini Pro
+    print("\nFalling back to Gemini Pro for integration...")
+    result = try_model(call_gemini_pro, messages)
     if result:
         return result
 
-    # Final fallback to DeepSeek
-    print("\nFalling back to DeepSeek for integration...")
-    return call_deepseek_original(messages)  # Use original DeepSeek as final fallback
+    # Final fallback to DeepSeekR1
+    print("\nFalling back to DeepSeekR1 for integration...")
+    return call_deepseek_original(messages)
 
 
 
@@ -4045,6 +4144,7 @@ async def run_research_pathway(user_query):
                 print(f"Project manager attempt {attempt + 1} failed: {e}")
                 await asyncio.sleep(2)
 
+                
         # Phase 1: Initial Content Generation with Picked References
         print("Starting iterative search process...")
         picked_references, search_history = await iterative_search_engine(
@@ -4060,55 +4160,64 @@ async def run_research_pathway(user_query):
 
         store_search_results(picked_references)
         
-        # Generate content using multiple models
-        print("Generating content from picked references using multiple models...")
-        
+        # Generate content using multiple models with explicit calls
+        print("Generating content from picked references using three separate models...")
+
         drafts = {}
-        
-        # Try to generate each draft with fallbacks
-        for model in ["gemini", "deepseek", "o3mini"]:
-            try:
-                draft = content_developer_agent(
-                    context=None,
-                    question=user_query,
-                    manager_response=pm_response,
-                    references_data=picked_references,
-                    model_choice=model
-                )
-                if draft and not draft.startswith("[Error"):
-                    drafts[model] = draft
-                    print(f"Successfully generated {model} draft")
-                else:
-                    print(f"Failed to generate {model} draft")
-            except Exception as e:
-                root_logger.error(f"{model} draft generation failed: {str(e)}")
-                continue
-        
-        # Ensure we have at least two drafts for integration
+
+        try:
+            # 1) Claude 3.5 Sonnet
+            print("Creating draft with Claude 3.5 Sonnet...")
+            drafts["claude35_sonnet"] = content_developer_agent(
+                context=None,
+                question=user_query,
+                manager_response=pm_response,
+                references_data=picked_references,
+                model_choice="claude35_sonnet"
+            )
+            print("Draft from Claude 3.5 Sonnet completed.")
+        except Exception as e:
+            root_logger.error(f"Claude 3.5 Sonnet draft generation failed: {str(e)}")
+
+        try:
+            # 2) DeepSeek (original version)
+            print("Creating draft with DeepSeekR1 (original)...")
+            drafts["deepseek"] = content_developer_agent(
+                context=None,
+                question=user_query,
+                manager_response=pm_response,
+                references_data=picked_references,
+                model_choice="deepseek"
+            )
+            print("Draft from DeepSeekR1 completed.")
+        except Exception as e:
+            root_logger.error(f"DeepSeekR1 draft generation failed: {str(e)}")
+
+        try:
+            # 3) Gemini Pro
+            print("Creating draft with Gemini Pro...")
+            drafts["gemini_pro"] = content_developer_agent(
+                context=None,
+                question=user_query,
+                manager_response=pm_response,
+                references_data=picked_references,
+                model_choice="gemini_pro"
+            )
+            print("Draft from Gemini Pro completed.")
+        except Exception as e:
+            root_logger.error(f"Gemini Pro draft generation failed: {str(e)}")
+
         if len(drafts) < 2:
-            print("Insufficient valid drafts, attempting additional generation...")
-            # Try one more time with default model
-            try:
-                backup_draft = content_developer_agent(
-                    context=None,
-                    question=user_query,
-                    manager_response=pm_response,
-                    references_data=picked_references
-                )
-                if backup_draft and not backup_draft.startswith("[Error"):
-                    drafts["backup"] = backup_draft
-            except Exception as e:
-                root_logger.error(f"Backup draft generation failed: {str(e)}")
-        
-        # Integrate available drafts
+            root_logger.warning("Insufficient valid drafts, continuing with whichever are available...")
+
         print(f"Integrating {len(drafts)} available drafts...")
         content = integrate_drafts(
-            draft1=drafts.get("gemini", drafts.get("deepseek", "")),
-            draft2=drafts.get("deepseek", drafts.get("o3mini", "")),
-            draft3=drafts.get("o3mini", drafts.get("backup", "")),
-            question=user_query  # Add the missing question parameter
+            draft1=drafts.get("claude35_sonnet", ""),
+            draft2=drafts.get("deepseek", ""),
+            draft3=drafts.get("gemini_pro", ""),
+            question=user_query  # Passing the research question to aid integration
         )
-        
+
         if not content or content.startswith("[Error"):
             raise ValueError("Failed to generate integrated content draft")
 
@@ -5141,6 +5250,44 @@ async def main():
     except Exception as e:
         root_logger.error(f"Failed to save final version: {e}")
 
+def extract_error_context(log_file_path: str):
+    """
+    Reviews the given log file and extracts lines containing either "[ERROR]" or "'error'",
+    including 10 lines of context before and after each matching line.
+    
+    The extracted content is saved to a new file with the same name as the log file, but
+    with the prefix "ERRORS_ONLY_".
+    """
+    try:
+        with open(log_file_path, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+    except FileNotFoundError:
+        print(f"Log file not found: {log_file_path}")
+        return
+
+    error_context_blocks = []
+    for idx, line in enumerate(lines):
+        if "[ERROR]" in line or "'error'" in line:
+            # Calculate context: 10 lines before and after (if available)
+            start = max(0, idx - 10)
+            end = min(len(lines), idx + 11)  # current line plus 10 lines after
+            block = "".join(lines[start:end])
+            error_context_blocks.append(block)
+
+    output_filename = "ERRORS_ONLY_" + os.path.basename(log_file_path)
+    output_path = os.path.join(os.path.dirname(log_file_path), output_filename)
+
+    separator = "\n" + ("=" * 80) + "\n"
+    with open(output_path, 'w', encoding='utf-8') as out_file:
+        out_file.write(separator.join(error_context_blocks))
+
+    print(f"Extracted error context saved to: {output_path}")
+
+
 if __name__ == "__main__":
+    import asyncio
     asyncio.run(main())
 
+    # After the processing is done, automatically extract error context from the log file.
+    # LOG_FILE is the global variable set during logging setup.
+    extract_error_context(LOG_FILE)
