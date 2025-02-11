@@ -8,6 +8,8 @@ An AI-powered tool for writing well cited (and citation checked) academic paragr
 
 - Multi-model approach using:
   - [O3-mini](https://openai.com/index/openai-o3-mini/) - efficient reasoning LLM
+  - [Claude 3.5 sonnet](https://claude.ai/) - latest Claude 3.5 sonnet model
+  - [Google Gemini 2.0 Pro](https://ai.google.dev/gemini) - latest Gemini Pro model
   - [Google Gemini 2.0 Flash with thinking](https://ai.google.dev/gemini) - latest Gemini model with "thinking".
   - [DeepSeekR1](https://docs.fireworks.ai/api-reference/introduction) - DeepSeek's reasoning LLM via the Fireworks.ai API (stable, fast and secure compared to the original DeepSeek API).
 - Iterative search with adaptive query generation
