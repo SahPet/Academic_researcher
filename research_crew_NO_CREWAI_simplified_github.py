@@ -640,8 +640,16 @@ def call_claude35_sonnet(
         else:
             conversation_messages.append(msg)
     
-    root_logger.debug("System message for Claude 3.5 Sonnet: " + system_message)
-    root_logger.debug("Conversation messages: " + str(conversation_messages))
+    # Log input
+    print("\n=== CLAUDE 3.5 SONNET INPUT ===")
+    print(f"System message:\n{system_message}\n")
+    print("Conversation messages:")
+    messages_str = json.dumps(conversation_messages, indent=2)
+    if len(messages_str) > 5000:
+        print(messages_str[:3000] + "\n...[TRUNCATED]...\n" + messages_str[-2000:])
+    else:
+        print(messages_str)
+    print("=====================\n")
 
     for attempt in range(max_retries):
         try:
@@ -664,6 +672,11 @@ def call_claude35_sonnet(
                 if attempt < max_retries - 1:
                     continue
                 return "[Error: Empty Claude 3.5 Sonnet response]"
+            
+            # Log output
+            print("\n=== CLAUDE 3.5 SONNET OUTPUT ===")
+            print(content)
+            print("=====================\n")
             
             return content
 
@@ -4683,6 +4696,7 @@ async def final_revision_controller(
     Returns:
         The final revised text with preserved domain references
     """
+
     current_text = current_final_text
     iteration = 0
     attempted_urls = set()  # Track URLs we've already tried to fetch
@@ -4692,27 +4706,26 @@ async def final_revision_controller(
         iteration += 1
         print(f"\n--- Final Revision Iteration {iteration} ---")
 
-        # First check with router before citation validation
+        # First check with the router before citation validation
         router_response = final_revision_router_agent(current_text, user_query)
         action = router_response.get("action", "NO_ADDITIONAL_CHANGES_NEEDED")
         reason = router_response.get("reason", "")
         print(f"Router Action: {action}, Reason: {reason}")
 
-        # REMOVE the call to handle_citation_placeholders here.
-
-        # Validate citations (after placeholder handling, or at the start)
+        # Validate citations (after router check, but before any action)
         citation_problems = validate_final_references(current_text)
         print(f"Citation Problems: {citation_problems}")
 
+        # If no further action is needed and no validation issues remain, we can stop.
         if action == "NO_ADDITIONAL_CHANGES_NEEDED" and not citation_problems:
-            break  # Exit if no issues
+            break
 
+        # Handle incomplete references OR newly detected citation problems.
         if action == "FETCH_URL_NEEDED" or citation_problems:
-            # Prioritize fetching URLs/DOIs
+            # Gather URLs/DOIs from local validation results
             urls_to_fetch = []
             dois_to_fetch = []
 
-            # Get URLs/DOIs from validation problems.  This is the KEY CHANGE.
             for problem in citation_problems:
                 if problem["type"] in ("MISSING_URL", "INCOMPLETE_URL"):
                     url = problem["detail"]
@@ -4724,17 +4737,20 @@ async def final_revision_controller(
                     if doi not in attempted_dois:
                         dois_to_fetch.append(doi)
                         attempted_dois.add(doi)
-                # Ignore other problem types (NEEDS_CITATION, PLACEHOLDER, MISSING_CITATION)
-                # We'll handle those *after* fetching.
+                # Ignore NEEDS_CITATION, PLACEHOLDER, MISSING_CITATION here
+                # (handle them after metadata fetching)
 
             if urls_to_fetch or dois_to_fetch:
                 print(f"Fetching metadata for {len(urls_to_fetch)} URLs and {len(dois_to_fetch)} DOIs...")
                 all_fetched_metadata = []
 
+                # Fetch for URLs
                 if urls_to_fetch:
                     fetched_metadata = await fetch_missing_metadata(urls_to_fetch)
                     if fetched_metadata:
                         all_fetched_metadata.extend(fetched_metadata)
+
+                # Fetch for DOIs
                 if dois_to_fetch:
                     fetched_metadata = await fetch_missing_metadata(dois_to_fetch)
                     if fetched_metadata:
@@ -4742,24 +4758,45 @@ async def final_revision_controller(
 
                 if all_fetched_metadata:
                     print(f"Fetched metadata for {len(all_fetched_metadata)} references.")
-                    # Update references and revise text
+
+                    # Merge or update the session references file
                     all_used_references = get_current_references()
                     for new_ref in all_fetched_metadata:
-                        existing_ref = next((ref for ref in all_used_references if (ref.get('url') and normalize_url(ref['url']) == normalize_url(new_ref.get('url'))) or (ref.get('doi') and ref.get('doi') == new_ref.get('doi'))), None)
+                        # Attempt to merge with an existing reference (match by url or doi)
+                        existing_ref = next(
+                            (
+                                ref for ref in all_used_references
+                                if (ref.get('url') and normalize_url(ref['url']) == normalize_url(new_ref.get('url')))
+                                   or (ref.get('doi') and ref.get('doi') == new_ref.get('doi'))
+                            ),
+                            None
+                        )
                         if existing_ref:
+                            # Only overwrite if the new metadata is more complete/longer
                             for k, v in new_ref.items():
-                                if k not in existing_ref or (isinstance(v,str) and len(v) > len(existing_ref.get(k,''))):
+                                if k not in existing_ref or (isinstance(v, str) and len(v) > len(existing_ref.get(k, ''))):
                                     existing_ref[k] = v
                         else:
                             all_used_references.append(new_ref)
 
-                    store_search_results(all_used_references) # Save after merging
+                    store_search_results(all_used_references)
 
+                    # Now revise the text to incorporate the newly fetched metadata
                     revision_context = {
                         "current_text": current_text,
                         "reference_updates": all_fetched_metadata,
-                        "failed_urls": list(attempted_urls - set(ref.get('url', '') for ref in all_fetched_metadata if ref.get('url'))) + list(attempted_dois - set(ref.get('doi', '') for ref in all_fetched_metadata if ref.get('doi'))),  # URLs we tried but failed
-                        "instructions": "Update ONLY the reference metadata while preserving all content and arguments. Add author names, publication years, and other citation details where missing."
+                        "failed_urls": (
+                            list(attempted_urls - set(
+                                ref.get('url', '') for ref in all_fetched_metadata if ref.get('url')
+                            ))
+                            + list(attempted_dois - set(
+                                ref.get('doi', '') for ref in all_fetched_metadata if ref.get('doi')
+                            ))
+                        ),
+                        "instructions": (
+                            "Update ONLY the reference metadata while preserving all content and arguments. "
+                            "Add author names, publication years, and other citation details where missing."
+                        )
                     }
                     current_text = final_revision_agent(
                         context=json.dumps(revision_context, indent=2),
@@ -4767,41 +4804,34 @@ async def final_revision_controller(
                     )
                     print("Updated reference metadata in text")
                 else:
-                    print("No metadata could be extracted for any URLs.")
-                    # NO SWITCH to ONLY_REVISION_NEEDED.  We handle missing URLs/DOIs differently.
+                    print("No metadata could be extracted for any URLs/DOIs.")
 
-            # After fetching (or if there was nothing to fetch), handle remaining problems
+            # After metadata fetching (if any), re-check for placeholders or missing citations
             remaining_problems = validate_final_references(current_text)
             if any(p["type"] in ("NEEDS_CITATION", "PLACEHOLDER", "MISSING_CITATION") for p in remaining_problems):
                 print("Handling remaining citation problems (placeholders, missing citations)...")
-                # Option 1: Remove unsupported claims (more rigorous)
+
+                # More rigorous approach: remove claims lacking complete references
                 revision_context = {
                     "original_draft": original_draft,
                     "current_text": current_text,
                     "problems": remaining_problems,
-                    "failed_urls": list(attempted_urls), # Include failed URLs
-                    "instructions": "Remove any incomplete citations and their associated claims. Ensure all remaining references are complete and accurate."
+                    "failed_urls": list(attempted_urls),
+                    "instructions": (
+                        "Remove any incomplete citations and their associated claims. Ensure all remaining references "
+                        "are complete and accurate."
+                    )
                 }
                 current_text = final_revision_agent(
                     context=json.dumps(revision_context, indent=2),
                     question=f"Create final version without incomplete citations for: {user_query}"
                 )
 
-                # Option 2: Mark unsupported claims (less rigorous) - NOT RECOMMENDED
-                # for problem in remaining_problems:
-                #     if problem["type"] == "NEEDS_CITATION":
-                #         current_text = current_text.replace("[needs citation]", "[Unsupported Claim]") # Or: "[Citation Needed: Specific topic]"
-                #     elif problem["type"] == "PLACEHOLDER":
-                #          # Remove, or replace with a more descriptive placeholder
-                #         current_text = current_text.replace(problem["detail"], "[Incomplete Citation]")
-                #     elif problem["type"] == "MISSING_CITATION":
-                #         # Remove the citation
-                #         current_text = re.sub(r'\(\s*' + re.escape(problem["detail"].strip("()")) +r'\s*\)', '', current_text)
-
+                # (Alternatively, one could mark such claims as [Unsupported Claim], etc.)
 
         elif action == "EXTRA_SEARCH_NEEDED":
             print("Performing extra search...")
-            # Generate new search query using current context
+            # Generate a new search query based on the current text
             new_search_query = researcher_agent(
                 context=current_text,
                 question=user_query,
@@ -4810,12 +4840,15 @@ async def final_revision_controller(
             new_refs = await single_search_engine(new_search_query, manager_plan="")
 
             if new_refs:
-                # Integrate new references while preserving original domain context
+                # Integrate new references
                 revision_context = {
                     "original_draft": original_draft,
                     "current_text": current_text,
                     "new_references": new_refs,
-                    "instructions": "Integrate new references, focusing on adding supporting evidence or addressing gaps.  Preserve existing content and structure as much as possible."
+                    "instructions": (
+                        "Integrate new references, focusing on adding supporting evidence or addressing gaps. "
+                        "Preserve existing content and structure as much as possible."
+                    )
                 }
                 current_text = content_developer_agent(
                     context=json.dumps(revision_context, indent=2),
@@ -4823,23 +4856,25 @@ async def final_revision_controller(
                     manager_response="Integrate new references while preserving domain specifics",
                     references_data=new_refs
                 )
-                # Update the session's picked references
+                # Also add them to the session references
                 all_used_references = get_current_references()
                 all_used_references.extend(new_refs)
                 store_search_results(all_used_references)
-
             else:
                 print("Extra search yielded no new relevant references.")
-                # Don't switch to ONLY_REVISION_NEEDED automatically.  Continue to next iteration.
 
         elif action == "ONLY_REVISION_NEEDED":
             print("Performing text revision...")
             revision_context = {
                 "original_draft": original_draft,
                 "current_text": current_text,
-                "reason": reason, # Router's reason for revision
+                "reason": reason,
                 "failed_urls": list(attempted_urls),
-                "instructions": "Revise the text to address any remaining issues. Focus on clarity, flow, and coherence.  If there are any unsupported claims due to failed URL fetches, either remove the claims or mark them clearly as needing citation."
+                "instructions": (
+                    "Revise the text to address any remaining issues. Focus on clarity, flow, and coherence. "
+                    "If there are unsupported claims due to failed URL fetches, either remove those claims or "
+                    "mark them clearly as needing citation."
+                )
             }
             current_text = final_revision_agent(
                 context=json.dumps(revision_context, indent=2),
@@ -4850,18 +4885,20 @@ async def final_revision_controller(
             print(f"Unexpected action: {action}.  Breaking revision loop.")
             break
 
-        # Post-processing check (after each action)
+        # Post-processing check
         final_problems = validate_final_references(current_text)
         if final_problems:
             if iteration == max_iterations:
                 print("Max iterations reached. Removing problematic citations...")
-                # Remove problematic citations on final iteration
                 revision_context = {
                     "original_draft": original_draft,
                     "current_text": current_text,
                     "problems": final_problems,
                     "failed_urls": list(attempted_urls),
-                    "instructions": "Remove any incomplete citations and their associated claims. Ensure all remaining references are complete."
+                    "instructions": (
+                        "Remove any incomplete citations and their associated claims. "
+                        "Ensure all remaining references are complete."
+                    )
                 }
                 current_text = final_revision_agent(
                     context=json.dumps(revision_context, indent=2),
@@ -4869,10 +4906,9 @@ async def final_revision_controller(
                 )
             else:
                 print(f"Problems remain after iteration {iteration}: {final_problems}")
-                # Try another iteration
-                continue
+                continue  # Attempt another iteration
 
-    # Add final validation check here
+    # Final validation check after the main loop
     print("\nPerforming final validation check...")
     final_router_response = final_revision_router_agent(current_text, user_query)
     final_action = final_router_response.get("action", "NO_ADDITIONAL_CHANGES_NEEDED")
@@ -4881,7 +4917,7 @@ async def final_revision_controller(
     print(f"Final validation result: {final_action}")
     print(f"Reason: {final_reason}")
 
-    # If changes are still needed and we haven't hit max iterations, do one more revision cycle
+    # If changes are still needed, but we haven't exceeded the iteration count, do a final cleanup pass
     if final_action != "NO_ADDITIONAL_CHANGES_NEEDED" and iteration < max_iterations:
         print("\nRunning final cleanup cycle...")
         revision_context = {
@@ -4889,7 +4925,9 @@ async def final_revision_controller(
             "current_text": current_text,
             "reason": final_reason,
             "failed_urls": list(attempted_urls),
-            "instructions": "Final cleanup: address remaining issues while preserving key content and complete references."
+            "instructions": (
+                "Final cleanup: address remaining issues while preserving key content and complete references."
+            )
         }
         current_text = final_revision_agent(
             context=json.dumps(revision_context, indent=2),
@@ -4897,6 +4935,86 @@ async def final_revision_controller(
         )
 
     return current_text
+
+
+
+
+
+
+def final_revision_router_agent(final_text: str, user_question: str) -> dict:
+    """
+    Sends the final text and research question to the LLM with instructions
+    to decide whether additional changes are needed.
+    Expects a JSON response with:
+      - action: one of NO_ADDITIONAL_CHANGES_NEEDED, EXTRA_SEARCH_NEEDED, ONLY_REVISION_NEEDED, or FETCH_URL_NEEDED
+      - reason: a short explanation
+      - urls: list of URLs/DOIs needing metadata fetch (only if action == FETCH_URL_NEEDED).
+    """
+
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are a final revision router evaluating both content quality and academic rigor. Review the text for:\n\n"
+                "1. Reference Completeness:\n"
+                "   - Every citation MUST include:\n"
+                "       * Author name(s)\n"
+                "       * Publication year\n"
+                "       * Title\n"
+                "       * Journal or publication source\n"
+                "       * URL or DOI\n"
+                "   - If citations are incomplete (missing authors, year, title, or URL/DOI), return FETCH_URL_NEEDED.\n"
+                "     Provide the specific URLs/DOIs that need metadata in 'urls'.\n\n"
+                "2. Answer Completeness:\n"
+                "   - Check if the text fully answers the research question.\n"
+                "   - If key evidence or coverage is missing, return EXTRA_SEARCH_NEEDED.\n\n"
+                "3. Academic Quality:\n"
+                "   - Ensure sources are appropriate (peer-reviewed, credible).\n"
+                "   - If replacements are needed, also choose EXTRA_SEARCH_NEEDED.\n\n"
+                "4. Clarity & Structure:\n"
+                "   - If text is thorough but needs improved organization or style, return ONLY_REVISION_NEEDED.\n\n"
+                "5. If everything is correct, set NO_ADDITIONAL_CHANGES_NEEDED.\n\n"
+                "Return JSON:\n"
+                "{\n"
+                "  \"action\": \"FETCH_URL_NEEDED\" | \"EXTRA_SEARCH_NEEDED\" | \"ONLY_REVISION_NEEDED\" | \"NO_ADDITIONAL_CHANGES_NEEDED\",\n"
+                "  \"reason\": \"short reason\",\n"
+                "  \"urls\": [\"url or doi\"]  # Only if FETCH_URL_NEEDED\n"
+                "}"
+            )
+        },
+        {
+            "role": "user",
+            "content": (
+                f"Research Question:\n{user_question}\n\n"
+                f"Final Text:\n{final_text}\n\n"
+                "Please decide which action is needed. If references lack any required metadata, set action=FETCH_URL_NEEDED "
+                "and list them under 'urls'. If the question is incomplete or missing evidence, set EXTRA_SEARCH_NEEDED. "
+                "If it just needs better structure or style, set ONLY_REVISION_NEEDED. If everything is fine, set NO_ADDITIONAL_CHANGES_NEEDED.\n\n"
+                "Return the JSON object described above."
+            )
+        }
+    ]
+
+    response = call_deepseek(messages, fast_mode=True)
+    parsed = extract_json(response)
+
+    if parsed and isinstance(parsed, list) and len(parsed) > 0 and isinstance(parsed[0], dict):
+        result = parsed[0]
+        # Ensure we have 'urls' if action == FETCH_URL_NEEDED
+        if result.get("action") == "FETCH_URL_NEEDED" and "urls" not in result:
+            result["urls"] = []
+        return result
+
+    # Default fallback if parsing fails
+    return {
+        "action": "EXTRA_SEARCH_NEEDED",
+        "reason": "Unable to confirm completeness. Additional searching recommended.",
+        "urls": []
+    }
+
+    
+
+
 
 
 
@@ -5121,96 +5239,6 @@ async def fetch_missing_metadata(problems: List[str]) -> List[dict]:
 
 
 
-
-def final_revision_router_agent(final_text: str, user_question: str) -> dict:
-    """
-    Sends the final text and research question to the LLM with instructions
-    to decide whether additional changes are needed.
-    Expects a JSON response with:
-      - action: one of NO_ADDITIONAL_CHANGES_NEEDED, EXTRA_SEARCH_NEEDED, ONLY_REVISION_NEEDED, or FETCH_URL_NEEDED
-      - reason: a short explanation
-      - urls: list of URLs needing metadata fetch (only for FETCH_URL_NEEDED action)
-    """
-    messages = [
-        {
-            "role": "system",
-            "content": (
-                "You are a final revision router evaluating both content quality and academic rigor. Review the text for:\n\n"
-                "1. Reference Completeness:\n"
-                "   - Every citation MUST include all required metadata:\n"
-                "     * Author names\n"
-                "     * Publication year\n"
-                "     * Title\n"
-                "     * Journal/source\n"
-                "     * URL or DOI\n"
-                "   - Flag ANY citation that:\n"
-                "     * Contains placeholders like [URL needed] or [needs citation]\n"
-                "     * Is missing author information\n"
-                "     * Lacks publication year\n"
-                "     * Has incomplete source details\n"
-                "   - Return FETCH_URL_NEEDED if ANY citations are incomplete\n\n"
-                "2. Answer Completeness:\n"
-                "   - Fully addresses all aspects of the research question\n"
-                "   - Provides sufficient depth and detail\n"
-                "   - Includes relevant examples and evidence\n"
-                "   - Covers important counterpoints or limitations\n\n"
-                "3. Academic Quality:\n"
-                "   - Uses peer-reviewed academic sources\n"
-                "   - Provides complete reference information\n"
-                "   - Avoids non-academic sources\n\n"
-                "4. Clarity and Structure:\n"
-                "   - Clear organization and flow\n"
-                "   - Well-supported arguments\n"
-                "   - Appropriate technical depth\n\n"
-                "Choose FETCH_URL_NEEDED if:\n"
-                "- Citations are missing author information\n"
-                "- Reference metadata is incomplete\n"
-                "- URLs need author/publication details\n"
-                "Return the list of URLs needing metadata fetch\n\n"
-                "Choose EXTRA_SEARCH_NEEDED if:\n"
-                "- Important aspects of the question remain unaddressed\n"
-                "- Key evidence or examples are missing\n"
-                "- Non-academic sources need replacement\n"
-                "- Additional perspectives are needed\n\n"
-                "Choose ONLY_REVISION_NEEDED if:\n"
-                "- Content is complete but needs reorganization\n"
-                "- Arguments need better structuring\n"
-                "- Citations need better integration\n"
-                "- Writing needs clarity improvements\n\n"
-                "Choose NO_ADDITIONAL_CHANGES_NEEDED if:\n"
-                "- Question is fully addressed\n"
-                "- Arguments are well-supported\n"
-                "- Academic sources are properly used\n"
-                "- Content is clear and well-organized\n"
-                "- All references have complete metadata"
-            )
-        },
-        {
-            "role": "user",
-            "content": (
-                f"Research Question: {user_question}\n\n"
-                f"Final Text:\n{final_text}\n\n"
-                "Return a JSON response with:\n"
-                "  - action: one of NO_ADDITIONAL_CHANGES_NEEDED, EXTRA_SEARCH_NEEDED, ONLY_REVISION_NEEDED, or FETCH_URL_NEEDED\n"
-                "  - reason: a short explanation\n"
-                "  - urls: list of URLs needing metadata fetch (only for FETCH_URL_NEEDED action)"
-            )
-        }
-    ]
-    response = call_deepseek(messages, fast_mode=True)
-    parsed = extract_json(response)
-    if parsed and isinstance(parsed, list) and isinstance(parsed[0], dict):
-        result = parsed[0]
-        # Ensure urls field exists for FETCH_URL_NEEDED action
-        if result.get("action") == "FETCH_URL_NEEDED" and "urls" not in result:
-            result["urls"] = []
-        return result
-    else:
-        return {
-            "action": "EXTRA_SEARCH_NEEDED",
-            "reason": "Unable to verify content completeness and quality - additional review needed.",
-            "urls": []
-        }
 
 
 async def main():
