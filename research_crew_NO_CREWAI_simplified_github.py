@@ -658,7 +658,8 @@ def call_claude35_sonnet(
                 messages=conversation_messages
             )
 
-            content = response.completion.strip()
+            # The content is now in response.content, not response.completion
+            content = response.content[0].text.strip()
             if not content:
                 if attempt < max_retries - 1:
                     continue
